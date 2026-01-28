@@ -8,15 +8,18 @@ variables:
   ANDROID_BUILD_TOOLS: "35.0.0"
   ANDROID_SDK_TOOLS: "11076708"
 
+# Shell executor setup - assumes Java is installed on runner
+# Android SDK is downloaded per-job to android-sdk/ directory
 .android_setup: &android_setup
-  image: eclipse-temurin:17-jdk
   before_script:
-    - apt-get update -qq && apt-get install -y -qq wget unzip
     - export ANDROID_HOME="${PWD}/android-sdk"
     - mkdir -p $ANDROID_HOME/cmdline-tools
-    - wget -q "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_SDK_TOOLS}_latest.zip" -O cmdline-tools.zip
-    - unzip -q cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
-    - mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+    - |
+      if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
+        wget -q "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_SDK_TOOLS}_latest.zip" -O cmdline-tools.zip
+        unzip -q cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
+        mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+      fi
     - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
     - yes | sdkmanager --licenses > /dev/null 2>&1 || true
     - sdkmanager "platform-tools" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" > /dev/null
@@ -54,11 +57,9 @@ lint:
 
 deploy:
   stage: deploy
-  image: alpine:latest
   dependencies:
     - build
   before_script:
-    - apk add --no-cache openssh-client rsync
     - mkdir -p ~/.ssh
     - echo "$DEPLOY_SSH_KEY" > ~/.ssh/id_rsa
     - chmod 600 ~/.ssh/id_rsa

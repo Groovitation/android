@@ -63,8 +63,7 @@ google-services.json
 # Version control
 vcs.xml
 
-# Gradle wrapper jar (downloaded automatically)
-gradle/wrapper/gradle-wrapper.jar
+# Note: gradle-wrapper.jar is tracked for CI reproducibility
 
 # Mac files
 .DS_Store
