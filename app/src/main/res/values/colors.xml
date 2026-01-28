@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand colors -->
+    <color name="groovitation_primary">#6366F1</color>
+    <color name="groovitation_primary_dark">#4F46E5</color>
+    <color name="groovitation_accent">#EC4899</color>
+
+    <!-- Light theme colors -->
+    <color name="colorPrimary">@color/groovitation_primary</color>
+    <color name="colorPrimaryDark">@color/groovitation_primary_dark</color>
+    <color name="colorAccent">@color/groovitation_accent</color>
+
+    <!-- Status bar -->
+    <color name="status_bar_color">@color/groovitation_primary_dark</color>
+
+    <!-- Navigation bar -->
+    <color name="navigation_bar_color">#FFFFFF</color>
+
+    <!-- Backgrounds -->
+    <color name="background_light">#FFFFFF</color>
+    <color name="background_dark">#1F2937</color>
+
+    <!-- Text colors -->
+    <color name="text_primary">#111827</color>
+    <color name="text_secondary">#6B7280</color>
+</resources>

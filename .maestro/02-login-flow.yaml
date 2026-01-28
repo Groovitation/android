@@ -1,0 +1,59 @@
+# Test: User can log in via the web interface
+# Prerequisites: App is launched
+
+appId: io.blaha.groovitation
+name: Login Flow
+env:
+  TEST_EMAIL: test@example.com
+  TEST_PASSWORD: testpassword123
+---
+- launchApp:
+    clearState: true
+
+# Wait for page to load
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 15000
+
+- takeScreenshot: screenshots/02-before-login
+
+# Look for sign in link/button (adjust text based on actual UI)
+- runFlow:
+    when:
+      visible: "Sign [Ii]n"
+    commands:
+      - tapOn:
+          text: "Sign [Ii]n"
+      - extendedWaitUntil:
+          visible: "Email|email"
+          timeout: 10000
+      - takeScreenshot: screenshots/02-login-form
+
+# If we see a login form, fill it in
+- runFlow:
+    when:
+      visible: "Email|email"
+    commands:
+      # Input email - look for email input field
+      - tapOn:
+          text: "Email|email"
+          optional: true
+      - inputText: ${TEST_EMAIL}
+
+      # Input password
+      - tapOn:
+          text: "Password|password"
+          optional: true
+      - inputText: ${TEST_PASSWORD}
+
+      - takeScreenshot: screenshots/02-credentials-entered
+
+      # Submit the form
+      - tapOn:
+          text: "Sign [Ii]n|Log [Ii]n|Submit"
+
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 10000
+
+      - takeScreenshot: screenshots/02-after-login

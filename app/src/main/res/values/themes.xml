@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme -->
+    <style name="Theme.Groovitation" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/groovitation_primary</item>
+        <item name="colorPrimaryVariant">@color/groovitation_primary_dark</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+
+        <!-- Secondary brand color -->
+        <item name="colorSecondary">@color/groovitation_accent</item>
+        <item name="colorSecondaryVariant">@color/groovitation_accent</item>
+        <item name="colorOnSecondary">@android:color/white</item>
+
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@color/status_bar_color</item>
+        <item name="android:windowLightStatusBar">false</item>
+
+        <!-- Navigation bar -->
+        <item name="android:navigationBarColor">@color/navigation_bar_color</item>
+
+        <!-- Background -->
+        <item name="android:windowBackground">@color/background_light</item>
+    </style>
+
+    <!-- Splash screen theme -->
+    <style name="Theme.Groovitation.Splash" parent="Theme.Groovitation">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>

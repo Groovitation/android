@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Groovitation</string>
+
+    <!-- Notification channels -->
+    <string name="channel_default_name">General Notifications</string>
+    <string name="channel_default_description">General app notifications</string>
+    <string name="channel_friends_name">Friend Activity</string>
+    <string name="channel_friends_description">Notifications about your friends\' activity</string>
+    <string name="channel_places_name">Nearby Places</string>
+    <string name="channel_places_description">Notifications about nearby places that match your interests</string>
+
+    <!-- Biometric -->
+    <string name="biometric_title">Authenticate</string>
+    <string name="biometric_subtitle">Confirm your identity</string>
+    <string name="biometric_cancel">Cancel</string>
+
+    <!-- Location -->
+    <string name="location_permission_rationale">Groovitation needs your location to find nearby places and connect you with friends.</string>
+
+    <!-- Share -->
+    <string name="share_title">Share via</string>
+</resources>

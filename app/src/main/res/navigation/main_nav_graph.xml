@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/main_nav_graph"
+    app:startDestination="@id/web_fragment">
+
+    <fragment
+        android:id="@+id/web_fragment"
+        android:name="io.blaha.groovitation.GroovitationWebFragment"
+        android:label="Groovitation">
+
+        <!-- Navigation actions -->
+        <action
+            android:id="@+id/action_navigate"
+            app:destination="@id/web_fragment" />
+
+        <action
+            android:id="@+id/action_replace"
+            app:destination="@id/web_fragment"
+            app:popUpTo="@id/web_fragment"
+            app:popUpToInclusive="true" />
+
+    </fragment>
+
+</navigation>

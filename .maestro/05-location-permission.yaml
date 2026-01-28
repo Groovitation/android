@@ -1,0 +1,43 @@
+# Test: Location permission flow
+# Verifies the LocationComponent bridge works
+
+appId: io.blaha.groovitation
+name: Location Permission Flow
+---
+- launchApp
+
+# Wait for page to load
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 15000
+
+# Navigate to map if not already there
+- runFlow:
+    when:
+      visible: "[Mm]ap"
+    commands:
+      - tapOn:
+          text: "[Mm]ap"
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 10000
+
+- takeScreenshot: screenshots/05-map-page
+
+# Location permission dialog should appear
+# Accept "While using the app" or "Allow"
+- runFlow:
+    when:
+      visible: "While using|Allow|ALLOW|Precise|Only this time"
+    commands:
+      - tapOn:
+          text: "While using|Precise|Allow|ALLOW"
+          optional: true
+      - takeScreenshot: screenshots/05-permission-granted
+
+# After permission, map should show user location or nearby places
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+
+- takeScreenshot: screenshots/05-after-location

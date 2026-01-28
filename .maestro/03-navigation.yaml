@@ -1,0 +1,57 @@
+# Test: Navigation between main sections works
+# Tests that Turbo navigation is working correctly
+
+appId: io.blaha.groovitation
+name: Navigation Test
+---
+- launchApp
+
+# Wait for initial load
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 15000
+
+- takeScreenshot: screenshots/03-initial-load
+
+# Try to navigate to Map (if visible)
+- runFlow:
+    when:
+      visible: "[Mm]ap"
+    commands:
+      - tapOn:
+          text: "[Mm]ap"
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 10000
+      - takeScreenshot: screenshots/03-map-page
+
+# Try to navigate to Interests (if visible)
+- runFlow:
+    when:
+      visible: "[Ii]nterests"
+    commands:
+      - tapOn:
+          text: "[Ii]nterests"
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 10000
+      - takeScreenshot: screenshots/03-interests-page
+
+# Try to navigate to Friends (if visible)
+- runFlow:
+    when:
+      visible: "[Ff]riends"
+    commands:
+      - tapOn:
+          text: "[Ff]riends"
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 10000
+      - takeScreenshot: screenshots/03-friends-page
+
+# Test back navigation
+- back
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 5000
+- takeScreenshot: screenshots/03-after-back

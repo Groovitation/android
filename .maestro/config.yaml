@@ -1,0 +1,12 @@
+# Maestro configuration for Groovitation Android tests
+# Basic auth is handled automatically by GroovitationWebViewClient
+
+appId: io.blaha.groovitation
+name: Groovitation Android Tests
+
+# Environment variables for test configuration
+env:
+  BASE_URL: https://groovitation.blaha.io
+  # Basic auth credentials (handled by WebViewClient, but useful for reference)
+  BASIC_AUTH_USER: groovitation
+  BASIC_AUTH_PASS: aldoofra

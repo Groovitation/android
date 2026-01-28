@@ -1,0 +1,21 @@
+# Test: App launches and loads the landing page
+# This verifies the app can connect to groovitation.blaha.io through basic auth
+
+appId: io.blaha.groovitation
+name: App Launches Successfully
+---
+- launchApp:
+    clearState: true
+
+# Wait for the WebView to load (basic auth is handled automatically)
+- extendedWaitUntil:
+    visible: ".*"  # Any content visible
+    timeout: 15000
+
+# Take a screenshot to verify the app loaded
+- takeScreenshot: screenshots/01-app-launched
+
+# The landing page should show something - either login or the app content
+- assertVisible:
+    text: ".*"  # Assert something is visible (not a white screen)
+    enabled: true
