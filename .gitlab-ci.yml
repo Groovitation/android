@@ -60,15 +60,17 @@ deploy:
   stage: deploy
   dependencies:
     - build
+  variables:
+    DEPLOY_HOST: "192.168.1.124"
   before_script:
     - mkdir -p ~/.ssh
     - echo "$DEPLOY_SSH_KEY" > ~/.ssh/id_rsa
     - chmod 600 ~/.ssh/id_rsa
-    - ssh-keyscan -H groovitation.blaha.io >> ~/.ssh/known_hosts 2>/dev/null || true
+    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - cp app/build/outputs/apk/debug/app-debug.apk groovitation.apk
-    - rsync -avz groovitation.apk deploy@groovitation.blaha.io:/var/www/groovitation/public/android/
-    - ssh deploy@groovitation.blaha.io "ln -sf /var/www/groovitation/public/android/groovitation.apk /var/www/groovitation/public/android/latest.apk"
+    - rsync -avz groovitation.apk deploy@${DEPLOY_HOST}:/var/www/groovitation/public/android/
+    - ssh deploy@${DEPLOY_HOST} "ln -sf /var/www/groovitation/public/android/groovitation.apk /var/www/groovitation/public/android/latest.apk"
   only:
     - main
   environment:
