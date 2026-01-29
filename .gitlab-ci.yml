@@ -69,8 +69,8 @@ deploy:
     - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - cp app/build/outputs/apk/debug/app-debug.apk groovitation.apk
-    - rsync -avz groovitation.apk deploy@${DEPLOY_HOST}:/var/www/groovitation/public/android/
-    - ssh deploy@${DEPLOY_HOST} "ln -sf /var/www/groovitation/public/android/groovitation.apk /var/www/groovitation/public/android/latest.apk"
+    - rsync -avz groovitation.apk ben@${DEPLOY_HOST}:/var/www/groovitation/public/android/
+    - ssh ben@${DEPLOY_HOST} "ln -sf /var/www/groovitation/public/android/groovitation.apk /var/www/groovitation/public/android/latest.apk"
   only:
     - main
   environment:
