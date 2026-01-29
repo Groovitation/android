@@ -14,6 +14,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.firebase.messaging.FirebaseMessaging
 import dev.hotwire.navigation.activities.HotwireActivity
 import dev.hotwire.navigation.navigator.NavigatorConfiguration
@@ -27,6 +30,8 @@ class MainActivity : HotwireActivity() {
         private const val KEY_FIRST_LAUNCH = "first_launch_complete"
         private const val WELCOME_NOTIFICATION_ID = 1001
     }
+
+    private lateinit var bottomNavigation: BottomNavigationView
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -57,10 +62,47 @@ class MainActivity : HotwireActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // Apply window insets to the nav host
         findViewById<View>(R.id.main_nav_host).applyDefaultImeWindowInsets()
+
+        // Setup bottom navigation
+        bottomNavigation = findViewById(R.id.bottom_navigation)
+        setupBottomNavigation()
+
+        // Apply window insets to bottom navigation for edge-to-edge
+        ViewCompat.setOnApplyWindowInsetsListener(bottomNavigation) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(0, 0, 0, systemBars.bottom)
+            insets
+        }
+
         Log.d(TAG, "MainActivity onCreate completed, navigatorConfigurations: ${navigatorConfigurations()}")
         requestNotificationPermission()
         handleIntent(intent)
+    }
+
+    private fun setupBottomNavigation() {
+        bottomNavigation.setOnItemSelectedListener { item ->
+            val path = when (item.itemId) {
+                R.id.nav_map -> "/map"
+                R.id.nav_plan -> "/plan"
+                R.id.nav_friends -> "/friends"
+                R.id.nav_interests -> "/interests"
+                R.id.nav_account -> "/users/edit"
+                else -> return@setOnItemSelectedListener false
+            }
+
+            val url = "${BuildConfig.BASE_URL}$path"
+            Log.d(TAG, "Bottom navigation: navigating to $url")
+
+            // Navigate in the current navigator
+            delegate.currentNavigator?.route(url)
+            true
+        }
+
+        // Default to Map tab
+        bottomNavigation.selectedItemId = R.id.nav_map
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -72,7 +114,7 @@ class MainActivity : HotwireActivity() {
         return listOf(
             NavigatorConfiguration(
                 name = "main",
-                startLocation = BuildConfig.BASE_URL,
+                startLocation = "${BuildConfig.BASE_URL}/map",
                 navigatorHostId = R.id.main_nav_host
             )
         )
@@ -83,14 +125,35 @@ class MainActivity : HotwireActivity() {
             val url = it.getStringExtra("url")
             if (!url.isNullOrEmpty()) {
                 Log.d(TAG, "Deep link URL from notification: $url")
+                updateBottomNavForUrl(url)
             }
 
             it.data?.let { uri ->
                 if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
+                    updateBottomNavForPath(path)
                 }
             }
+        }
+    }
+
+    private fun updateBottomNavForUrl(url: String) {
+        val path = url.removePrefix(BuildConfig.BASE_URL)
+        updateBottomNavForPath(path)
+    }
+
+    private fun updateBottomNavForPath(path: String) {
+        val itemId = when {
+            path.startsWith("/map") -> R.id.nav_map
+            path.startsWith("/plan") -> R.id.nav_plan
+            path.startsWith("/friends") -> R.id.nav_friends
+            path.startsWith("/interests") -> R.id.nav_interests
+            path.startsWith("/users/edit") -> R.id.nav_account
+            else -> null
+        }
+        if (itemId != null && bottomNavigation.selectedItemId != itemId) {
+            bottomNavigation.selectedItemId = itemId
         }
     }
 

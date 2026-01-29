@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_map"
+        android:icon="@drawable/ic_nav_map"
+        android:title="Map" />
+    <item
+        android:id="@+id/nav_plan"
+        android:icon="@drawable/ic_nav_plan"
+        android:title="Plan" />
+    <item
+        android:id="@+id/nav_friends"
+        android:icon="@drawable/ic_nav_friends"
+        android:title="Friends" />
+    <item
+        android:id="@+id/nav_interests"
+        android:icon="@drawable/ic_nav_interests"
+        android:title="Interests" />
+    <item
+        android:id="@+id/nav_account"
+        android:icon="@drawable/ic_nav_account"
+        android:title="Account" />
+</menu>

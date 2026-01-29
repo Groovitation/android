@@ -1,55 +1,43 @@
 # Test: Navigation between main sections works
-# Tests that Turbo navigation is working correctly
+# Tests that native bottom navigation is working correctly
 
 appId: io.blaha.groovitation
 name: Navigation Test
 ---
 - launchApp
 
-# Wait for initial load
+# Wait for initial load with bottom navigation
 - extendedWaitUntil:
-    visible: ".*"
+    visible: "Map"
     timeout: 15000
 
 - takeScreenshot: screenshots/03-initial-load
 
-# Try to navigate to Map (if visible)
-- runFlow:
-    when:
-      visible: "[Mm]ap"
-    commands:
-      - tapOn:
-          text: "[Mm]ap"
-      - extendedWaitUntil:
-          visible: ".*"
-          timeout: 10000
-      - takeScreenshot: screenshots/03-map-page
+# Navigate to Interests via native bottom nav
+- tapOn:
+    text: "Interests"
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+- takeScreenshot: screenshots/03-interests-page
 
-# Try to navigate to Interests (if visible)
-- runFlow:
-    when:
-      visible: "[Ii]nterests"
-    commands:
-      - tapOn:
-          text: "[Ii]nterests"
-      - extendedWaitUntil:
-          visible: ".*"
-          timeout: 10000
-      - takeScreenshot: screenshots/03-interests-page
+# Navigate to Friends via native bottom nav
+- tapOn:
+    text: "Friends"
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+- takeScreenshot: screenshots/03-friends-page
 
-# Try to navigate to Friends (if visible)
-- runFlow:
-    when:
-      visible: "[Ff]riends"
-    commands:
-      - tapOn:
-          text: "[Ff]riends"
-      - extendedWaitUntil:
-          visible: ".*"
-          timeout: 10000
-      - takeScreenshot: screenshots/03-friends-page
+# Navigate to Map via native bottom nav
+- tapOn:
+    text: "Map"
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+- takeScreenshot: screenshots/03-map-page
 
-# Test back navigation
+# Test back navigation behavior
 - back
 - extendedWaitUntil:
     visible: ".*"

@@ -1,0 +1,68 @@
+# Test: Native bottom navigation bar
+# Tests that the native BottomNavigationView works correctly
+
+appId: io.blaha.groovitation
+name: Native Navbar Test
+---
+- launchApp
+
+# Wait for initial load and bottom navigation to be visible
+- extendedWaitUntil:
+    visible: "Map"
+    timeout: 15000
+
+- takeScreenshot: screenshots/06-initial-with-navbar
+
+# Verify bottom navigation items are visible
+- assertVisible: "Map"
+- assertVisible: "Plan"
+- assertVisible: "Friends"
+- assertVisible: "Interests"
+- assertVisible: "Account"
+
+# Navigate to Plan via bottom nav
+- tapOn:
+    text: "Plan"
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+- takeScreenshot: screenshots/06-plan-page
+
+# Navigate to Friends via bottom nav
+- tapOn:
+    text: "Friends"
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+- takeScreenshot: screenshots/06-friends-page
+
+# Navigate to Interests via bottom nav
+- tapOn:
+    text: "Interests"
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+- takeScreenshot: screenshots/06-interests-page
+
+# Navigate to Account via bottom nav
+- tapOn:
+    text: "Account"
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+- takeScreenshot: screenshots/06-account-page
+
+# Navigate back to Map via bottom nav
+- tapOn:
+    text: "Map"
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+- takeScreenshot: screenshots/06-back-to-map
+
+# Verify bottom nav is still visible after navigating
+- assertVisible: "Map"
+- assertVisible: "Plan"
+- assertVisible: "Friends"
+- assertVisible: "Interests"
+- assertVisible: "Account"
