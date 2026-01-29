@@ -12,6 +12,7 @@ variables:
 # Android SDK is downloaded per-job to android-sdk/ directory
 .android_setup: &android_setup
   before_script:
+    - echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
     - export ANDROID_HOME="${PWD}/android-sdk"
     - mkdir -p $ANDROID_HOME/cmdline-tools
     - |
