@@ -9,9 +9,6 @@ import dev.hotwire.navigation.fragments.HotwireWebFragment
 
 /**
  * Custom WebFragment that handles HTTP Basic Authentication for groovitation.blaha.io.
- *
- * This extends HotwireWebFragment to properly integrate with the Hotwire Native framework
- * while adding HTTP auth support.
  */
 @HotwireDestinationDeepLink(uri = "hotwire://fragment/web")
 class GroovitationWebFragment : HotwireWebFragment() {
@@ -34,7 +31,6 @@ class GroovitationWebFragment : HotwireWebFragment() {
     ) {
         Log.d(TAG, "Received HTTP auth request for host: $host, realm: $realm")
 
-        // Provide basic auth credentials for groovitation.blaha.io
         if (host.contains("groovitation.blaha.io")) {
             Log.d(TAG, "Providing credentials for $host")
             handler.proceed(AUTH_USERNAME, AUTH_PASSWORD)
