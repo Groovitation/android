@@ -3,7 +3,6 @@ package io.blaha.groovitation.components
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -213,44 +212,20 @@ class LocationComponent(
     /**
      * Start true background service with 100m significant change updates.
      * This survives app death and shows a persistent notification.
+     * Persists config so it restarts on boot.
      */
     private fun handleStartBackgroundService(message: Message) {
-        val context = fragment.context ?: return
+        val data = message.data<BackgroundServiceData>()
+        val personUuid = data?.personUuid
 
-        // Check for background location permission (Android 10+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-                replyTo("startBackgroundService", ServiceReply(
-                    started = false,
-                    error = "Background location permission required. Please enable 'Allow all the time' in settings."
-                ))
-                return
-            }
-        }
-
-        if (!hasLocationPermission(context)) {
-            activity?.requestLocationPermission()
-            replyTo("startBackgroundService", ServiceReply(started = false, error = "Location permission required"))
+        if (personUuid.isNullOrEmpty()) {
+            replyTo("startBackgroundService", ServiceReply(started = false, error = "personUuid required"))
             return
         }
 
-        val data = message.data<BackgroundServiceData>()
-
-        val serviceIntent = Intent(context, LocationTrackingService::class.java).apply {
-            action = LocationTrackingService.ACTION_START
-            data?.postUrl?.let { putExtra(LocationTrackingService.EXTRA_POST_URL, it) }
-            data?.authToken?.let { putExtra(LocationTrackingService.EXTRA_AUTH_TOKEN, it) }
-            data?.personUuid?.let { putExtra(LocationTrackingService.EXTRA_PERSON_UUID, it) }
-        }
-
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
-            }
-            Log.d(TAG, "Background location service started")
+            activity?.enableBackgroundTracking(personUuid)
+            Log.d(TAG, "Background location service enabled for $personUuid")
             replyTo("startBackgroundService", ServiceReply(started = true))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start background service", e)

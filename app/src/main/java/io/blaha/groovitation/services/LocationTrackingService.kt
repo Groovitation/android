@@ -5,12 +5,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import android.webkit.CookieManager
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -18,6 +20,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import io.blaha.groovitation.BuildConfig
 import io.blaha.groovitation.MainActivity
 import io.blaha.groovitation.R
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +40,9 @@ import java.util.concurrent.TimeUnit
  *
  * Uses significant change updates (~100m) to minimize battery usage
  * while keeping the user's location current on the server.
+ *
+ * Survives app death (START_STICKY) and restarts on boot via BootReceiver.
+ * Config (personUuid, session cookie) persisted to SharedPreferences.
  */
 class LocationTrackingService : Service() {
 
@@ -44,27 +50,97 @@ class LocationTrackingService : Service() {
         private const val TAG = "LocationTrackingService"
         private const val NOTIFICATION_ID = 12345
         private const val CHANNEL_ID = "location_tracking"
+        private const val PREFS_NAME = "location_tracking_prefs"
+        private const val KEY_PERSON_UUID = "person_uuid"
+        private const val KEY_SESSION_COOKIE = "session_cookie"
+        private const val KEY_ENABLED = "tracking_enabled"
 
         // Location settings
         private const val MIN_DISTANCE_METERS = 100f  // Only update if moved 100m
         private const val MAX_INTERVAL_MS = 300000L   // Max 5 minutes between updates
         private const val MIN_INTERVAL_MS = 60000L    // Min 1 minute between updates
 
-        // Intent extras
-        const val EXTRA_POST_URL = "post_url"
-        const val EXTRA_AUTH_TOKEN = "auth_token"
-        const val EXTRA_PERSON_UUID = "person_uuid"
-
         // Actions
         const val ACTION_START = "io.blaha.groovitation.START_LOCATION_TRACKING"
         const val ACTION_STOP = "io.blaha.groovitation.STOP_LOCATION_TRACKING"
+
+        // Intent extras
+        const val EXTRA_PERSON_UUID = "person_uuid"
+
+        fun isEnabled(context: Context): Boolean {
+            return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(KEY_ENABLED, false)
+        }
+
+        fun getPersonUuid(context: Context): String? {
+            return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_PERSON_UUID, null)
+        }
+
+        /**
+         * Save tracking config and mark as enabled.
+         * Call this when the user is authenticated and we have their person UUID.
+         */
+        fun saveConfig(context: Context, personUuid: String) {
+            // Pull session cookie from WebView cookie jar
+            val cookie = CookieManager.getInstance()
+                .getCookie(BuildConfig.BASE_URL) ?: ""
+
+            context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .putString(KEY_PERSON_UUID, personUuid)
+                .putString(KEY_SESSION_COOKIE, cookie)
+                .putBoolean(KEY_ENABLED, true)
+                .apply()
+
+            Log.d(TAG, "Config saved for person $personUuid")
+        }
+
+        /**
+         * Refresh the stored session cookie from WebView.
+         * Call this on each app open to keep the cookie fresh.
+         */
+        fun refreshCookie(context: Context) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            if (!prefs.getBoolean(KEY_ENABLED, false)) return
+
+            val cookie = CookieManager.getInstance()
+                .getCookie(BuildConfig.BASE_URL) ?: ""
+            if (cookie.isNotEmpty()) {
+                prefs.edit().putString(KEY_SESSION_COOKIE, cookie).apply()
+                Log.d(TAG, "Session cookie refreshed")
+            }
+        }
+
+        fun clearConfig(context: Context) {
+            context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .clear()
+                .apply()
+        }
+
+        /**
+         * Start the tracking service if enabled and configured.
+         */
+        fun startIfEnabled(context: Context) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            if (!prefs.getBoolean(KEY_ENABLED, false)) return
+
+            val personUuid = prefs.getString(KEY_PERSON_UUID, null) ?: return
+
+            val intent = Intent(context, LocationTrackingService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_PERSON_UUID, personUuid)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var locationCallback: LocationCallback? = null
-
-    private var postUrl: String? = null
-    private var authToken: String? = null
     private var personUuid: String? = null
 
     private val httpClient = OkHttpClient.Builder()
@@ -88,21 +164,26 @@ class LocationTrackingService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 stopTracking()
+                clearConfig(this)
                 stopSelf()
                 return START_NOT_STICKY
             }
             ACTION_START, null -> {
-                // Extract configuration from intent
-                postUrl = intent?.getStringExtra(EXTRA_POST_URL) ?: postUrl
-                authToken = intent?.getStringExtra(EXTRA_AUTH_TOKEN) ?: authToken
-                personUuid = intent?.getStringExtra(EXTRA_PERSON_UUID) ?: personUuid
+                personUuid = intent?.getStringExtra(EXTRA_PERSON_UUID)
+                    ?: getPersonUuid(this)
+
+                if (personUuid == null) {
+                    Log.w(TAG, "No person UUID, cannot track")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
 
                 startForeground()
                 startTracking()
             }
         }
 
-        return START_STICKY  // Restart if killed
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -119,7 +200,7 @@ class LocationTrackingService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Location Tracking",
-                NotificationManager.IMPORTANCE_LOW  // No sound, minimal intrusion
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Shows when Groovitation is tracking your location in the background"
                 setShowBadge(false)
@@ -145,7 +226,6 @@ class LocationTrackingService : Service() {
     }
 
     private fun createNotification(): Notification {
-        // Intent to open app when notification tapped
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -154,7 +234,6 @@ class LocationTrackingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Intent to stop tracking
         val stopIntent = Intent(this, LocationTrackingService::class.java).apply {
             action = ACTION_STOP
         }
@@ -199,9 +278,7 @@ class LocationTrackingService : Service() {
                             latitude = location.latitude,
                             longitude = location.longitude,
                             accuracy = location.accuracy.toDouble(),
-                            altitude = if (location.hasAltitude()) location.altitude else null,
-                            speed = if (location.hasSpeed()) location.speed.toDouble() else null,
-                            heading = if (location.hasBearing()) location.bearing.toDouble() else null
+                            altitude = if (location.hasAltitude()) location.altitude else null
                         )
                     }
                 }
@@ -233,15 +310,19 @@ class LocationTrackingService : Service() {
         latitude: Double,
         longitude: Double,
         accuracy: Double,
-        altitude: Double?,
-        speed: Double?,
-        heading: Double?
+        altitude: Double?
     ) {
-        val url = postUrl
-        if (url.isNullOrEmpty()) {
-            Log.w(TAG, "No post URL configured")
-            return
-        }
+        val uuid = personUuid ?: return
+        val url = "${BuildConfig.BASE_URL}/people/$uuid/location"
+
+        // Get session cookie — prefer fresh from WebView, fall back to saved
+        val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
+            ?: getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_SESSION_COOKIE, null)
+            ?: run {
+                Log.w(TAG, "No session cookie available")
+                return
+            }
 
         serviceScope.launch {
             try {
@@ -250,27 +331,16 @@ class LocationTrackingService : Service() {
                     put("longitude", longitude)
                     put("accuracy", accuracy)
                     altitude?.let { put("altitude", it) }
-                    speed?.let { put("speed", it) }
-                    heading?.let { put("heading", it) }
-                    put("updateReason", "significant_distance")
-                    put("priority", "background")
                     put("timestamp", System.currentTimeMillis())
                 }
 
-                val requestBody = json.toString()
-                    .toRequestBody("application/json".toMediaType())
-
-                val requestBuilder = Request.Builder()
+                val request = Request.Builder()
                     .url(url)
-                    .post(requestBody)
+                    .post(json.toString().toRequestBody("application/json".toMediaType()))
                     .addHeader("Content-Type", "application/json")
+                    .addHeader("Cookie", cookie)
+                    .build()
 
-                // Add auth token if available
-                authToken?.let {
-                    requestBuilder.addHeader("X-Location-Token", it)
-                }
-
-                val request = requestBuilder.build()
                 val response = httpClient.newCall(request).execute()
 
                 if (response.isSuccessful) {

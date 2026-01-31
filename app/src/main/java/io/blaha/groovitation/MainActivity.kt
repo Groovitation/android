@@ -21,6 +21,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import dev.hotwire.navigation.activities.HotwireActivity
 import dev.hotwire.navigation.navigator.NavigatorConfiguration
 import dev.hotwire.navigation.util.applyDefaultImeWindowInsets
+import io.blaha.groovitation.services.LocationTrackingService
 
 class MainActivity : HotwireActivity() {
 
@@ -53,8 +54,20 @@ class MainActivity : HotwireActivity() {
 
         if (fineGranted || coarseGranted) {
             Log.d(TAG, "Location permission granted (fine=$fineGranted, coarse=$coarseGranted)")
+            requestBackgroundLocationPermission()
         } else {
             Log.w(TAG, "Location permission denied")
+        }
+    }
+
+    private val backgroundLocationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Log.d(TAG, "Background location permission granted")
+            LocationTrackingService.startIfEnabled(this)
+        } else {
+            Log.w(TAG, "Background location permission denied")
         }
     }
 
@@ -103,6 +116,15 @@ class MainActivity : HotwireActivity() {
 
         // Default to Map tab
         bottomNavigation.selectedItemId = R.id.nav_map
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh session cookie and restart tracking if enabled
+        LocationTrackingService.refreshCookie(this)
+        if (hasLocationPermission() && hasBackgroundLocationPermission()) {
+            LocationTrackingService.startIfEnabled(this)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -235,6 +257,17 @@ class MainActivity : HotwireActivity() {
         }
     }
 
+    private fun requestBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED) {
+            LocationTrackingService.startIfEnabled(this)
+            return
+        }
+        backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    }
+
     fun hasLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
@@ -244,6 +277,36 @@ class MainActivity : HotwireActivity() {
             this,
             Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun hasBackgroundLocationPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            hasLocationPermission()
+        }
+    }
+
+    /**
+     * Called by LocationComponent when the web app provides the person UUID.
+     * Saves config and starts the background service.
+     */
+    fun enableBackgroundTracking(personUuid: String) {
+        LocationTrackingService.saveConfig(this, personUuid)
+
+        if (!hasLocationPermission()) {
+            requestLocationPermission()
+            return
+        }
+
+        if (!hasBackgroundLocationPermission()) {
+            requestBackgroundLocationPermission()
+            return
+        }
+
+        LocationTrackingService.startIfEnabled(this)
     }
 
     private fun fetchFcmToken() {
