@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import android.webkit.CookieManager
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationCompat
@@ -22,6 +23,14 @@ import dev.hotwire.navigation.activities.HotwireActivity
 import dev.hotwire.navigation.navigator.NavigatorConfiguration
 import dev.hotwire.navigation.util.applyDefaultImeWindowInsets
 import io.blaha.groovitation.services.LocationTrackingService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 
 class MainActivity : HotwireActivity() {
 
@@ -33,6 +42,12 @@ class MainActivity : HotwireActivity() {
     }
 
     private lateinit var bottomNavigation: BottomNavigationView
+
+    // Session-level flag to avoid re-prompting background permission if already asked this session
+    private var backgroundPermissionPromptedThisSession = false
+    private var fcmTokenRegistered = false
+    private val httpClient = OkHttpClient()
+    private val scope = CoroutineScope(Dispatchers.IO)
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -54,7 +69,7 @@ class MainActivity : HotwireActivity() {
 
         if (fineGranted || coarseGranted) {
             Log.d(TAG, "Location permission granted (fine=$fineGranted, coarse=$coarseGranted)")
-            requestBackgroundLocationPermission()
+            tryStartBackgroundTracking()
         } else {
             Log.w(TAG, "Location permission denied")
         }
@@ -65,10 +80,11 @@ class MainActivity : HotwireActivity() {
     ) { isGranted ->
         if (isGranted) {
             Log.d(TAG, "Background location permission granted")
-            LocationTrackingService.startIfEnabled(this)
         } else {
             Log.w(TAG, "Background location permission denied")
         }
+        // Either way, try to start — tryStartBackgroundTracking checks conditions
+        tryStartBackgroundTracking()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -122,13 +138,7 @@ class MainActivity : HotwireActivity() {
     override fun onResume() {
         super.onResume()
         LocationTrackingService.refreshCookie(this)
-
-        if (hasLocationPermission() && !hasBackgroundLocationPermission()) {
-            // Foreground granted but background not yet — prompt for "Allow all the time"
-            requestBackgroundLocationPermission()
-        } else if (hasLocationPermission() && hasBackgroundLocationPermission()) {
-            LocationTrackingService.startIfEnabled(this)
-        }
+        tryStartBackgroundTracking()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -152,6 +162,8 @@ class MainActivity : HotwireActivity() {
             if (!url.isNullOrEmpty()) {
                 Log.d(TAG, "Deep link URL from notification: $url")
                 updateBottomNavForUrl(url)
+                // Navigate the WebView to this URL
+                delegate.currentNavigator?.route(url)
             }
 
             it.data?.let { uri ->
@@ -159,6 +171,7 @@ class MainActivity : HotwireActivity() {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
                     updateBottomNavForPath(path)
+                    delegate.currentNavigator?.route(uri.toString())
                 }
             }
         }
@@ -261,14 +274,15 @@ class MainActivity : HotwireActivity() {
         }
     }
 
-    private fun requestBackgroundLocationPermission() {
+    private fun promptBackgroundLocationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        if (ContextCompat.checkSelfPermission(
-                this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED) {
-            LocationTrackingService.startIfEnabled(this)
+        if (hasBackgroundLocationPermission()) return
+        if (backgroundPermissionPromptedThisSession) {
+            Log.d(TAG, "Background location already prompted this session, skipping")
             return
         }
+
+        backgroundPermissionPromptedThisSession = true
         backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
     }
 
@@ -294,23 +308,99 @@ class MainActivity : HotwireActivity() {
     }
 
     /**
-     * Called by LocationComponent when the web app provides the person UUID.
-     * Saves config and starts the background service.
+     * Central convergence point for background tracking.
+     *
+     * Called from every state change: permission grants, personId received, onResume.
+     * Checks all conditions and takes the appropriate next step:
+     * - If personUuid not yet known: do nothing (wait for web app to provide it)
+     * - If foreground location not granted: do nothing (already prompted in onCreate)
+     * - If background location not granted: prompt once per session
+     * - If all conditions met: start the service
      */
-    fun enableBackgroundTracking(personUuid: String) {
-        LocationTrackingService.saveConfig(this, personUuid)
+    fun tryStartBackgroundTracking() {
+        val personUuid = LocationTrackingService.getPersonUuid(this)
+        if (personUuid == null) {
+            Log.d(TAG, "tryStartBackgroundTracking: no personUuid yet")
+            return
+        }
 
         if (!hasLocationPermission()) {
-            requestLocationPermission()
+            Log.d(TAG, "tryStartBackgroundTracking: no foreground location permission")
             return
         }
 
         if (!hasBackgroundLocationPermission()) {
-            requestBackgroundLocationPermission()
+            Log.d(TAG, "tryStartBackgroundTracking: no background location permission, prompting")
+            promptBackgroundLocationPermission()
             return
         }
 
+        Log.d(TAG, "tryStartBackgroundTracking: all conditions met, starting service")
         LocationTrackingService.startIfEnabled(this)
+    }
+
+    /**
+     * Called by GroovitationWebFragment when the web app provides the person UUID
+     * via the GroovitationNative JavaScript interface.
+     */
+    fun onPersonIdReceived(personId: String) {
+        Log.d(TAG, "Person ID received from web: $personId")
+        LocationTrackingService.saveConfig(this, personId)
+        tryStartBackgroundTracking()
+        registerFcmTokenWithServer()
+    }
+
+    /**
+     * Called by LocationComponent when the web app provides the person UUID
+     * via bridge message. Saves config and tries to start tracking.
+     */
+    fun enableBackgroundTracking(personUuid: String) {
+        LocationTrackingService.saveConfig(this, personUuid)
+        tryStartBackgroundTracking()
+    }
+
+    /**
+     * Register the FCM token with the server so it can send push notifications.
+     * Requires: authenticated session (cookie) and FCM token available.
+     */
+    private fun registerFcmTokenWithServer() {
+        if (fcmTokenRegistered) return
+        val token = TokenStorage.fcmToken ?: return
+
+        val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
+        if (cookie.isNullOrEmpty()) {
+            Log.d(TAG, "No session cookie yet, deferring FCM token registration")
+            return
+        }
+
+        fcmTokenRegistered = true
+        scope.launch {
+            try {
+                val json = JSONObject().apply {
+                    put("token", token)
+                    put("platform", "android")
+                }
+
+                val request = Request.Builder()
+                    .url("${BuildConfig.BASE_URL}/api/notifications/tokens")
+                    .post(json.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("Cookie", cookie)
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    Log.d(TAG, "FCM token registered with server")
+                } else {
+                    Log.w(TAG, "FCM token registration failed: ${response.code}")
+                    fcmTokenRegistered = false
+                }
+                response.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error registering FCM token", e)
+                fcmTokenRegistered = false
+            }
+        }
     }
 
     private fun fetchFcmToken() {

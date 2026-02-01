@@ -4,11 +4,14 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.webkit.HttpAuthHandler
+import android.webkit.JavascriptInterface
+import dev.hotwire.core.turbo.webview.HotwireWebView
 import dev.hotwire.navigation.destinations.HotwireDestinationDeepLink
 import dev.hotwire.navigation.fragments.HotwireWebFragment
 
 /**
- * Custom WebFragment that handles HTTP Basic Authentication for groovitation.blaha.io.
+ * Custom WebFragment that handles HTTP Basic Authentication for groovitation.blaha.io
+ * and bridges personId from the web app to the native app for background tracking.
  */
 @HotwireDestinationDeepLink(uri = "hotwire://fragment/web")
 class GroovitationWebFragment : HotwireWebFragment() {
@@ -24,6 +27,11 @@ class GroovitationWebFragment : HotwireWebFragment() {
         Log.d(TAG, "GroovitationWebFragment onViewCreated")
     }
 
+    override fun onWebViewAttached(webView: HotwireWebView) {
+        super.onWebViewAttached(webView)
+        webView.addJavascriptInterface(GroovitationNativeInterface(), "GroovitationNative")
+    }
+
     override fun onReceivedHttpAuthRequest(
         handler: HttpAuthHandler,
         host: String,
@@ -37,6 +45,18 @@ class GroovitationWebFragment : HotwireWebFragment() {
         } else {
             Log.w(TAG, "Unknown host requesting auth: $host")
             super.onReceivedHttpAuthRequest(handler, host, realm)
+        }
+    }
+
+    private inner class GroovitationNativeInterface {
+        @JavascriptInterface
+        fun setPersonId(personId: String) {
+            Log.d(TAG, "Received personId from web: $personId")
+            if (personId.isBlank()) return
+
+            activity?.runOnUiThread {
+                (activity as? MainActivity)?.onPersonIdReceived(personId)
+            }
         }
     }
 }
