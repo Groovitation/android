@@ -92,6 +92,7 @@ class MainActivity : HotwireActivity() {
 
         Log.d(TAG, "MainActivity onCreate completed, navigatorConfigurations: ${navigatorConfigurations()}")
         requestNotificationPermission()
+        requestLocationPermission()
         handleIntent(intent)
     }
 
@@ -120,9 +121,12 @@ class MainActivity : HotwireActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Refresh session cookie and restart tracking if enabled
         LocationTrackingService.refreshCookie(this)
-        if (hasLocationPermission() && hasBackgroundLocationPermission()) {
+
+        if (hasLocationPermission() && !hasBackgroundLocationPermission()) {
+            // Foreground granted but background not yet — prompt for "Allow all the time"
+            requestBackgroundLocationPermission()
+        } else if (hasLocationPermission() && hasBackgroundLocationPermission()) {
             LocationTrackingService.startIfEnabled(this)
         }
     }
