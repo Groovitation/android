@@ -58,5 +58,18 @@ class GroovitationWebFragment : HotwireWebFragment() {
                 (activity as? MainActivity)?.onPersonIdReceived(personId)
             }
         }
+
+        @JavascriptInterface
+        fun hasNotificationPermission(): Boolean {
+            val mainActivity = activity as? MainActivity ?: return false
+            return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    mainActivity,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            } else {
+                true // Pre-Android 13 doesn't require runtime notification permission
+            }
+        }
     }
 }
