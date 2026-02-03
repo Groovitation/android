@@ -1,6 +1,8 @@
 package io.blaha.groovitation
 
+import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.webkit.HttpAuthHandler
@@ -69,6 +71,16 @@ class GroovitationWebFragment : HotwireWebFragment() {
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
             } else {
                 true // Pre-Android 13 doesn't require runtime notification permission
+            }
+        }
+
+        @JavascriptInterface
+        fun openNotificationSettings() {
+            activity?.let { act ->
+                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, act.packageName)
+                }
+                act.startActivity(intent)
             }
         }
     }
