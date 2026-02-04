@@ -19,3 +19,11 @@ cat > "$OUT_PATH" <<JSON
   "download_url": "https://groovitation.blaha.io/android/groovitation-${version_name}.apk"
 }
 JSON
+
+if [[ -n "${VERSION_ENV_PATH:-}" ]]; then
+  cat > "${VERSION_ENV_PATH}" <<ENV
+VERSION_NAME=${version_name}
+VERSION_CODE=${version_code}
+APK_NAME=groovitation-${version_name}.apk
+ENV
+fi

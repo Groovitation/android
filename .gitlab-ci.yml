@@ -69,9 +69,10 @@ deploy:
     - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
-      ./scripts/generate-version-json.sh version.json
-      VERSION_NAME=$(sed -n 's/.*"latest_version_name": *"\\([^"]*\\)".*/\\1/p' version.json)
-      APK_NAME="groovitation-${VERSION_NAME}.apk"
+      VERSION_ENV_PATH=version.env ./scripts/generate-version-json.sh version.json
+      set -a
+      source version.env
+      set +a
       cp app/build/outputs/apk/debug/app-debug.apk "${APK_NAME}"
       cp app/build/outputs/apk/debug/app-debug.apk groovitation.apk
       rsync -avz "${APK_NAME}" groovitation.apk version.json ben@${DEPLOY_HOST}:/media/nvme/docker_volumes/groovitation-android/
