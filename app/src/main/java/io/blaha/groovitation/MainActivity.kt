@@ -18,6 +18,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.firebase.messaging.FirebaseMessaging
 import dev.hotwire.navigation.activities.HotwireActivity
@@ -40,6 +41,7 @@ class MainActivity : HotwireActivity() {
         private const val PREFS_NAME = "groovitation_prefs"
         private const val KEY_FIRST_LAUNCH = "first_launch_complete"
         private const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
+        private const val KEY_UPDATE_PROMPT_SHOWN_VERSION = "update_prompt_shown_version"
         private const val WELCOME_NOTIFICATION_ID = 1001
     }
 
@@ -114,7 +116,6 @@ class MainActivity : HotwireActivity() {
         requestNotificationPermission()
         requestLocationPermission()
         handleIntent(intent)
-        checkForAppUpdate()
     }
 
     private fun setupBottomNavigation() {
@@ -144,6 +145,7 @@ class MainActivity : HotwireActivity() {
         super.onResume()
         LocationTrackingService.refreshCookie(this)
         tryStartBackgroundTracking()
+        checkForAppUpdate()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -462,13 +464,27 @@ class MainActivity : HotwireActivity() {
     }
 
     private fun checkForAppUpdate() {
-        CoroutineScope(Dispatchers.Main).launch {
+        lifecycleScope.launch(Dispatchers.Main) {
             val updateInfo = UpdateChecker.checkForUpdate() ?: return@launch
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val lastShownVersion = prefs.getString(KEY_UPDATE_PROMPT_SHOWN_VERSION, null)
+            if (lastShownVersion == updateInfo.latestVersionName) {
+                Log.d(TAG, "Update prompt already shown for ${updateInfo.latestVersionName}")
+                return@launch
+            }
+
+            if (supportFragmentManager.findFragmentByTag("update_dialog") != null) {
+                Log.d(TAG, "Update dialog already visible")
+                return@launch
+            }
+
             UpdateDialogFragment.newInstance(
                 currentVersion = BuildConfig.VERSION_NAME,
                 latestVersion = updateInfo.latestVersionName,
                 downloadUrl = updateInfo.downloadUrl
             ).show(supportFragmentManager, "update_dialog")
+
+            prefs.edit().putString(KEY_UPDATE_PROMPT_SHOWN_VERSION, updateInfo.latestVersionName).apply()
         }
     }
 
