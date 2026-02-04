@@ -14,6 +14,7 @@ import android.webkit.CookieManager
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -38,6 +39,7 @@ class MainActivity : HotwireActivity() {
         private const val TAG = "MainActivity"
         private const val PREFS_NAME = "groovitation_prefs"
         private const val KEY_FIRST_LAUNCH = "first_launch_complete"
+        private const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val WELCOME_NOTIFICATION_ID = 1001
     }
 
@@ -48,6 +50,7 @@ class MainActivity : HotwireActivity() {
     private var fcmTokenRegistered = false
     private val httpClient = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO)
+    private var activeWebFragment: GroovitationWebFragment? = null
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -59,6 +62,7 @@ class MainActivity : HotwireActivity() {
         } else {
             Log.w(TAG, "Notification permission denied")
         }
+        dispatchNotificationPermissionState(notificationPermissionState())
     }
 
     private val locationPermissionLauncher = registerForActivityResult(
@@ -197,7 +201,7 @@ class MainActivity : HotwireActivity() {
         }
     }
 
-    private fun requestNotificationPermission() {
+    private fun requestNotificationPermission(fromWeb: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             when {
                 ContextCompat.checkSelfPermission(
@@ -206,17 +210,25 @@ class MainActivity : HotwireActivity() {
                 ) == PackageManager.PERMISSION_GRANTED -> {
                     fetchFcmToken()
                     showWelcomeNotificationIfFirstLaunch()
+                    if (fromWeb) {
+                        dispatchNotificationPermissionState(notificationPermissionState())
+                    }
                 }
                 shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) -> {
+                    markNotificationPermissionRequested()
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
                 else -> {
+                    markNotificationPermissionRequested()
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
         } else {
             fetchFcmToken()
             showWelcomeNotificationIfFirstLaunch()
+            if (fromWeb) {
+                dispatchNotificationPermissionState(notificationPermissionState())
+            }
         }
     }
 
@@ -258,6 +270,51 @@ class MainActivity : HotwireActivity() {
         notificationManager.notify(WELCOME_NOTIFICATION_ID, notification)
 
         Log.d(TAG, "Welcome notification shown")
+    }
+
+    fun requestNotificationPermissionFromWeb() {
+        requestNotificationPermission(fromWeb = true)
+    }
+
+    fun registerWebFragment(fragment: GroovitationWebFragment) {
+        activeWebFragment = fragment
+    }
+
+    fun unregisterWebFragment(fragment: GroovitationWebFragment) {
+        if (activeWebFragment == fragment) {
+            activeWebFragment = null
+        }
+    }
+
+    private fun dispatchNotificationPermissionState(state: String) {
+        activeWebFragment?.dispatchNotificationPermissionState(state)
+    }
+
+    private fun notificationPermissionState(): String {
+        val enabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (granted && enabled) return "granted"
+            if (!granted && !wasNotificationPermissionRequested()) return "prompt"
+            return "denied"
+        }
+
+        return if (enabled) "granted" else "denied"
+    }
+
+    private fun markNotificationPermissionRequested() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, true)
+            .apply()
+    }
+
+    private fun wasNotificationPermissionRequested(): Boolean {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, false)
     }
 
     fun requestLocationPermission() {
