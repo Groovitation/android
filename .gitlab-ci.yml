@@ -68,6 +68,7 @@ deploy:
     - chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
+    - ./scripts/generate-version-json.sh version.json
     - VERSION_NAME=$(sed -n 's/.*"latest_version_name": *"\\([^"]*\\)".*/\\1/p' version.json)
     - APK_NAME="groovitation-${VERSION_NAME}.apk"
     - cp app/build/outputs/apk/debug/app-debug.apk "${APK_NAME}"
