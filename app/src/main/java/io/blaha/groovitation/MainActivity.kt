@@ -110,6 +110,7 @@ class MainActivity : HotwireActivity() {
         requestNotificationPermission()
         requestLocationPermission()
         handleIntent(intent)
+        checkForAppUpdate()
     }
 
     private fun setupBottomNavigation() {
@@ -400,6 +401,17 @@ class MainActivity : HotwireActivity() {
                 Log.e(TAG, "Error registering FCM token", e)
                 fcmTokenRegistered = false
             }
+        }
+    }
+
+    private fun checkForAppUpdate() {
+        CoroutineScope(Dispatchers.Main).launch {
+            val updateInfo = UpdateChecker.checkForUpdate() ?: return@launch
+            UpdateDialogFragment.newInstance(
+                currentVersion = BuildConfig.VERSION_NAME,
+                latestVersion = updateInfo.latestVersionName,
+                downloadUrl = updateInfo.downloadUrl
+            ).show(supportFragmentManager, "update_dialog")
         }
     }
 
