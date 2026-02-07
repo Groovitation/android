@@ -25,6 +25,7 @@ class GroovitationApplication : Application() {
     private fun configureHotwire() {
         Hotwire.config.debugLoggingEnabled = BuildConfig.DEBUG
         Hotwire.config.jsonConverter = KotlinXJsonConverter()
+        Hotwire.config.userAgent = BuildConfig.USER_AGENT_EXTENSION
         Hotwire.config.makeCustomWebView = { context ->
             GroovitationWebView(context)
         }
