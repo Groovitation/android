@@ -157,10 +157,14 @@ class MainActivity : HotwireActivity() {
         return listOf(
             NavigatorConfiguration(
                 name = "main",
-                startLocation = "${BuildConfig.BASE_URL}/map",
+                startLocation = "${BuildConfig.BASE_URL}/",
                 navigatorHostId = R.id.main_nav_host
             )
         )
+    }
+
+    fun setBottomNavVisible(visible: Boolean) {
+        bottomNavigation.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
     private fun handleIntent(intent: Intent?) {

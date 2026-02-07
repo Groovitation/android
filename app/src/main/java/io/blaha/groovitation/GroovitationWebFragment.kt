@@ -103,6 +103,13 @@ class GroovitationWebFragment : HotwireWebFragment() {
                 act.startActivity(intent)
             }
         }
+
+        @JavascriptInterface
+        fun setBottomNavVisible(visible: Boolean) {
+            activity?.runOnUiThread {
+                (activity as? MainActivity)?.setBottomNavVisible(visible)
+            }
+        }
     }
 
     fun dispatchNotificationPermissionState(state: String) {
