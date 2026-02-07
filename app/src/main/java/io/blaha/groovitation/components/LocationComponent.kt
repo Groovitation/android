@@ -117,7 +117,10 @@ class LocationComponent(
             val locationRequest = LocationRequest.Builder(
                 Priority.PRIORITY_HIGH_ACCURACY,
                 1000L
-            ).setMaxUpdates(1).build()
+            )
+                .setMaxUpdates(1)
+                .setWaitForAccurateLocation(false)
+                .build()
 
             val callback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
