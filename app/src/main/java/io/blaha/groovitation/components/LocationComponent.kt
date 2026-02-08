@@ -88,8 +88,13 @@ class LocationComponent(
                     fusedLocationClient?.lastLocation?.await()
                 }
 
-                if (location != null) {
-                    Log.d(TAG, "Got location: ${location.latitude}, ${location.longitude}")
+                // Check if location is fresh (less than 5 minutes old)
+                val maxAgeMs = 5 * 60 * 1000L  // 5 minutes
+                val isFresh = location != null && 
+                    (System.currentTimeMillis() - location.time) < maxAgeMs
+
+                if (isFresh) {
+                    Log.d(TAG, "Got fresh location: ${location!!.latitude}, ${location.longitude} (age: ${(System.currentTimeMillis() - location.time) / 1000}s)")
                     replyTo("requestLocation", LocationReply(
                         success = true,
                         latitude = location.latitude,
@@ -98,6 +103,9 @@ class LocationComponent(
                         altitude = location.altitude
                     ))
                 } else {
+                    if (location != null) {
+                        Log.d(TAG, "Cached location too old (age: ${(System.currentTimeMillis() - location.time) / 1000}s), requesting fresh")
+                    }
                     requestFreshLocation(message)
                 }
             } catch (e: SecurityException) {
