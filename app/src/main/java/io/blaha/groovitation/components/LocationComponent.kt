@@ -82,40 +82,10 @@ class LocationComponent(
             fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
         }
 
-        scope.launch {
-            try {
-                val location = withContext(Dispatchers.IO) {
-                    fusedLocationClient?.lastLocation?.await()
-                }
-
-                // Check if location is fresh (less than 5 minutes old)
-                val maxAgeMs = 5 * 60 * 1000L  // 5 minutes
-                val isFresh = location != null && 
-                    (System.currentTimeMillis() - location.time) < maxAgeMs
-
-                if (isFresh) {
-                    Log.d(TAG, "Got fresh location: ${location!!.latitude}, ${location.longitude} (age: ${(System.currentTimeMillis() - location.time) / 1000}s)")
-                    replyTo("requestLocation", LocationReply(
-                        success = true,
-                        latitude = location.latitude,
-                        longitude = location.longitude,
-                        accuracy = location.accuracy.toDouble(),
-                        altitude = location.altitude
-                    ))
-                } else {
-                    if (location != null) {
-                        Log.d(TAG, "Cached location too old (age: ${(System.currentTimeMillis() - location.time) / 1000}s), requesting fresh")
-                    }
-                    requestFreshLocation(message)
-                }
-            } catch (e: SecurityException) {
-                Log.e(TAG, "Location permission denied", e)
-                replyTo("requestLocation", LocationReply(success = false, error = "Location permission denied"))
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting location", e)
-                replyTo("requestLocation", LocationReply(success = false, error = e.message ?: "Unknown error"))
-            }
-        }
+        // Always request fresh location - lastLocation cache is unreliable
+        // and can return stale coordinates with misleading timestamps
+        Log.d(TAG, "Requesting fresh GPS fix (ignoring lastLocation cache)")
+        requestFreshLocation(message)
     }
 
     private fun requestFreshLocation(message: Message) {
