@@ -157,7 +157,7 @@ class MainActivity : HotwireActivity() {
         return listOf(
             NavigatorConfiguration(
                 name = "main",
-                startLocation = "${BuildConfig.BASE_URL}/",
+                startLocation = "${BuildConfig.BASE_URL}/map",
                 navigatorHostId = R.id.main_nav_host
             )
         )
