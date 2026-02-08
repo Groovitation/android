@@ -3,6 +3,7 @@ package io.blaha.groovitation
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -22,6 +23,7 @@ object UpdateChecker {
             val client = OkHttpClient()
             val request = Request.Builder()
                 .url(VERSION_URL)
+                .header("Authorization", Credentials.basic("groovitation", "aldoofra"))
                 .build()
 
             val response = client.newCall(request).execute()
