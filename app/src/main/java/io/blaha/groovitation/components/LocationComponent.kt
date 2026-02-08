@@ -92,30 +92,45 @@ class LocationComponent(
         val context = fragment.context ?: return
 
         try {
+            // Request multiple updates over 10 seconds to get best GPS fix
             val locationRequest = LocationRequest.Builder(
                 Priority.PRIORITY_HIGH_ACCURACY,
-                1000L
+                2000L  // Request every 2 seconds
             )
-                .setMaxUpdates(1)
-                .setWaitForAccurateLocation(false)
+                .setDurationMillis(10000L)  // For up to 10 seconds
+                .setMaxUpdates(5)  // Max 5 updates
                 .build()
 
+            var bestLocation: android.location.Location? = null
+            var updateCount = 0
+            var replied = false
+            
             val callback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
-                    val location = result.lastLocation
-                    if (location != null) {
-                        Log.d(TAG, "Fresh location: ${location.latitude}, ${location.longitude}")
+                    if (replied) return
+                    val location = result.lastLocation ?: return
+                    updateCount++
+                    Log.d(TAG, "Location update #$updateCount: ${location.latitude}, ${location.longitude} (accuracy: ${location.accuracy}m)")
+                    
+                    // Keep the most accurate location we've seen
+                    if (bestLocation == null || location.accuracy < bestLocation!!.accuracy) {
+                        bestLocation = location
+                    }
+                    
+                    // Accept immediately if we get good GPS accuracy (<50m) or after 5 updates
+                    if (location.accuracy < 50 || updateCount >= 5) {
+                        replied = true
+                        fusedLocationClient?.removeLocationUpdates(this)
+                        val best = bestLocation!!
+                        Log.d(TAG, "Accepting location: ${best.latitude}, ${best.longitude} (accuracy: ${best.accuracy}m)")
                         replyTo("requestLocation", LocationReply(
                             success = true,
-                            latitude = location.latitude,
-                            longitude = location.longitude,
-                            accuracy = location.accuracy.toDouble(),
-                            altitude = location.altitude
+                            latitude = best.latitude,
+                            longitude = best.longitude,
+                            accuracy = best.accuracy.toDouble(),
+                            altitude = best.altitude
                         ))
-                    } else {
-                        replyTo("requestLocation", LocationReply(success = false, error = "Could not determine location"))
                     }
-                    fusedLocationClient?.removeLocationUpdates(this)
                 }
             }
 
@@ -124,6 +139,29 @@ class LocationComponent(
                 callback,
                 Looper.getMainLooper()
             )
+            
+            // Timeout after 12 seconds - return best location we have
+            android.os.Handler(Looper.getMainLooper()).postDelayed({
+                if (!replied) {
+                    replied = true
+                    fusedLocationClient?.removeLocationUpdates(callback)
+                    val best = bestLocation
+                    if (best != null) {
+                        Log.d(TAG, "Timeout - using best location: ${best.latitude}, ${best.longitude} (accuracy: ${best.accuracy}m)")
+                        replyTo("requestLocation", LocationReply(
+                            success = true,
+                            latitude = best.latitude,
+                            longitude = best.longitude,
+                            accuracy = best.accuracy.toDouble(),
+                            altitude = best.altitude
+                        ))
+                    } else {
+                        Log.w(TAG, "Timeout - no location received")
+                        replyTo("requestLocation", LocationReply(success = false, error = "Could not determine location"))
+                    }
+                }
+            }, 12000L)
+            
         } catch (e: SecurityException) {
             Log.e(TAG, "Location permission denied", e)
             replyTo("requestLocation", LocationReply(success = false, error = "Location permission denied"))
