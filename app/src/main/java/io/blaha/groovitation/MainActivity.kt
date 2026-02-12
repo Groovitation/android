@@ -44,6 +44,7 @@ class MainActivity : HotwireActivity() {
         private const val KEY_FIRST_LAUNCH = "first_launch_complete"
         private const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val KEY_UPDATE_PROMPT_SHOWN_VERSION = "update_prompt_shown_version"
+        private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
         private const val WELCOME_NOTIFICATION_ID = 1001
     }
@@ -396,6 +397,16 @@ class MainActivity : HotwireActivity() {
         }
 
         backgroundPermissionPromptedThisSession = true
+
+        // If the system prompt was already shown once (previous launch), show our
+        // explanation dialog instead — the ActivityResult callback doesn't always
+        // fire when the user presses back from the system location settings screen.
+        if (wasBackgroundLocationSystemPrompted()) {
+            showBackgroundLocationExplanation()
+            return
+        }
+
+        markBackgroundLocationSystemPrompted()
         backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
     }
 
@@ -421,6 +432,18 @@ class MainActivity : HotwireActivity() {
             }
             .setCancelable(false)
             .show()
+    }
+
+    private fun wasBackgroundLocationSystemPrompted(): Boolean {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED, false)
+    }
+
+    private fun markBackgroundLocationSystemPrompted() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED, true)
+            .apply()
     }
 
     private fun wasBackgroundLocationDialogShown(): Boolean {
