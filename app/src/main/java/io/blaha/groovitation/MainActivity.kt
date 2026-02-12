@@ -20,6 +20,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.navigation.NavigationBarView
 import com.google.firebase.messaging.FirebaseMessaging
 import dev.hotwire.navigation.activities.HotwireActivity
 import dev.hotwire.navigation.navigator.NavigatorConfiguration
@@ -122,7 +123,7 @@ class MainActivity : HotwireActivity() {
     }
 
     private val bottomNavListener =
-        BottomNavigationView.OnItemSelectedListener { item ->
+        NavigationBarView.OnItemSelectedListener { item ->
             val path = when (item.itemId) {
                 R.id.nav_map -> "/map"
                 R.id.nav_plan -> "/plan"
