@@ -121,15 +121,15 @@ class MainActivity : HotwireActivity() {
         handleIntent(intent)
     }
 
-    private fun setupBottomNavigation() {
-        bottomNavigation.setOnItemSelectedListener { item ->
+    private val bottomNavListener =
+        BottomNavigationView.OnItemSelectedListener { item ->
             val path = when (item.itemId) {
                 R.id.nav_map -> "/map"
                 R.id.nav_plan -> "/plan"
                 R.id.nav_friends -> "/friends"
                 R.id.nav_interests -> "/interests"
                 R.id.nav_account -> "/users/edit"
-                else -> return@setOnItemSelectedListener false
+                else -> return@OnItemSelectedListener false
             }
 
             val url = "${BuildConfig.BASE_URL}$path"
@@ -140,8 +140,24 @@ class MainActivity : HotwireActivity() {
             true
         }
 
-        // Default to Map tab
-        bottomNavigation.selectedItemId = R.id.nav_map
+    private fun setupBottomNavigation() {
+        bottomNavigation.setOnItemSelectedListener(bottomNavListener)
+    }
+
+    fun syncBottomNavTab(path: String) {
+        val itemId = when {
+            path.startsWith("/map") -> R.id.nav_map
+            path.startsWith("/plan") -> R.id.nav_plan
+            path.startsWith("/friends") -> R.id.nav_friends
+            path.startsWith("/interests") -> R.id.nav_interests
+            path.startsWith("/users/edit") -> R.id.nav_account
+            else -> return
+        }
+        if (bottomNavigation.selectedItemId != itemId) {
+            bottomNavigation.setOnItemSelectedListener(null)
+            bottomNavigation.selectedItemId = itemId
+            bottomNavigation.setOnItemSelectedListener(bottomNavListener)
+        }
     }
 
     override fun onResume() {
@@ -160,7 +176,7 @@ class MainActivity : HotwireActivity() {
         return listOf(
             NavigatorConfiguration(
                 name = "main",
-                startLocation = "${BuildConfig.BASE_URL}/map",
+                startLocation = "${BuildConfig.BASE_URL}/",
                 navigatorHostId = R.id.main_nav_host
             )
         )

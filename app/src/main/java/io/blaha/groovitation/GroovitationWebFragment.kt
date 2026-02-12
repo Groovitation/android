@@ -126,6 +126,13 @@ class GroovitationWebFragment : HotwireWebFragment() {
             }
         }
 
+        @JavascriptInterface
+        fun syncBottomNav(path: String) {
+            activity?.runOnUiThread {
+                (activity as? MainActivity)?.syncBottomNavTab(path)
+            }
+        }
+
         /**
          * Request fresh GPS location. The result will be dispatched as a
          * 'groovitation:location' CustomEvent on window with {latitude, longitude, accuracy}.
