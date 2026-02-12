@@ -24,6 +24,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         private const val AUTH_USERNAME = "groovitation"
         private const val AUTH_PASSWORD = "aldoofra"
         private const val NOTIFICATION_PERMISSION_EVENT = "groovitation:notification-permission"
+        private const val LOCATION_PERMISSION_EVENT = "groovitation:location-permission"
     }
 
     private var attachedWebView: HotwireWebView? = null
@@ -92,6 +93,20 @@ class GroovitationWebFragment : HotwireWebFragment() {
         fun requestNotificationPermission() {
             val mainActivity = activity as? MainActivity ?: return
             mainActivity.requestNotificationPermissionFromWeb()
+        }
+
+        @JavascriptInterface
+        fun hasLocationPermission(): Boolean {
+            val mainActivity = activity as? MainActivity ?: return false
+            return mainActivity.hasLocationPermission()
+        }
+
+        @JavascriptInterface
+        fun requestLocationPermission() {
+            val mainActivity = activity as? MainActivity ?: return
+            activity?.runOnUiThread {
+                mainActivity.requestLocationPermissionFromWeb()
+            }
         }
 
         @JavascriptInterface
@@ -215,6 +230,15 @@ class GroovitationWebFragment : HotwireWebFragment() {
         }
         val script = "window.dispatchEvent(new CustomEvent('$NOTIFICATION_PERMISSION_EVENT'," +
             " { detail: { state: '$normalizedState' } }));"
+        val webView = attachedWebView ?: return
+        webView.post {
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
+    fun dispatchLocationPermissionState(granted: Boolean) {
+        val script = "window.dispatchEvent(new CustomEvent('$LOCATION_PERMISSION_EVENT'," +
+            " { detail: { granted: $granted } }));"
         val webView = attachedWebView ?: return
         webView.post {
             webView.evaluateJavascript(script, null)

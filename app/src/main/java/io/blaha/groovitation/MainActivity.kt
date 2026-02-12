@@ -65,6 +65,8 @@ class MainActivity : HotwireActivity() {
             Log.w(TAG, "Notification permission denied")
         }
         dispatchNotificationPermissionState(notificationPermissionState())
+        // Chain: notification → location permission
+        requestLocationPermission()
     }
 
     private val locationPermissionLauncher = registerForActivityResult(
@@ -75,10 +77,12 @@ class MainActivity : HotwireActivity() {
 
         if (fineGranted || coarseGranted) {
             Log.d(TAG, "Location permission granted (fine=$fineGranted, coarse=$coarseGranted)")
-            tryStartBackgroundTracking()
+            // Chain: foreground location → background location dialog
+            promptBackgroundLocationPermission()
         } else {
             Log.w(TAG, "Location permission denied")
         }
+        dispatchLocationPermissionState(fineGranted || coarseGranted)
     }
 
     private val backgroundLocationPermissionLauncher = registerForActivityResult(
@@ -114,7 +118,6 @@ class MainActivity : HotwireActivity() {
 
         Log.d(TAG, "MainActivity onCreate completed, navigatorConfigurations: ${navigatorConfigurations()}")
         requestNotificationPermission()
-        requestLocationPermission()
         handleIntent(intent)
     }
 
@@ -219,6 +222,8 @@ class MainActivity : HotwireActivity() {
                     if (fromWeb) {
                         dispatchNotificationPermissionState(notificationPermissionState())
                     }
+                    // Chain: notification already granted → location permission
+                    if (!fromWeb) requestLocationPermission()
                 }
                 shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) -> {
                     markNotificationPermissionRequested()
@@ -235,6 +240,8 @@ class MainActivity : HotwireActivity() {
             if (fromWeb) {
                 dispatchNotificationPermissionState(notificationPermissionState())
             }
+            // Chain: pre-Tiramisu (no notification dialog) → location permission
+            if (!fromWeb) requestLocationPermission()
         }
     }
 
@@ -282,6 +289,17 @@ class MainActivity : HotwireActivity() {
         requestNotificationPermission(fromWeb = true)
     }
 
+    fun requestLocationPermissionFromWeb() {
+        if (hasLocationPermission()) {
+            dispatchLocationPermissionState(true)
+        } else {
+            locationPermissionLauncher.launch(arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ))
+        }
+    }
+
     fun registerWebFragment(fragment: GroovitationWebFragment) {
         activeWebFragment = fragment
     }
@@ -294,6 +312,10 @@ class MainActivity : HotwireActivity() {
 
     private fun dispatchNotificationPermissionState(state: String) {
         activeWebFragment?.dispatchNotificationPermissionState(state)
+    }
+
+    private fun dispatchLocationPermissionState(granted: Boolean) {
+        activeWebFragment?.dispatchLocationPermissionState(granted)
     }
 
     private fun notificationPermissionState(): String {
@@ -333,7 +355,11 @@ class MainActivity : HotwireActivity() {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
 
-        if (!anyGranted) {
+        if (anyGranted) {
+            // Already granted — chain to background and dispatch state to web
+            promptBackgroundLocationPermission()
+            dispatchLocationPermissionState(true)
+        } else {
             locationPermissionLauncher.launch(permissions)
         }
     }
