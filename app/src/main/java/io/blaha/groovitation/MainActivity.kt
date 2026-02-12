@@ -1,6 +1,7 @@
 package io.blaha.groovitation
 
 import android.Manifest
+import android.app.AlertDialog
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -43,6 +44,7 @@ class MainActivity : HotwireActivity() {
         private const val KEY_FIRST_LAUNCH = "first_launch_complete"
         private const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val KEY_UPDATE_PROMPT_SHOWN_VERSION = "update_prompt_shown_version"
+        private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
         private const val WELCOME_NOTIFICATION_ID = 1001
     }
 
@@ -91,11 +93,11 @@ class MainActivity : HotwireActivity() {
     ) { isGranted ->
         if (isGranted) {
             Log.d(TAG, "Background location permission granted")
+            tryStartBackgroundTracking()
         } else {
             Log.w(TAG, "Background location permission denied")
+            showBackgroundLocationExplanation()
         }
-        // Either way, try to start — tryStartBackgroundTracking checks conditions
-        tryStartBackgroundTracking()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -384,6 +386,10 @@ class MainActivity : HotwireActivity() {
     private fun promptBackgroundLocationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         if (hasBackgroundLocationPermission()) return
+        if (wasBackgroundLocationDialogShown()) {
+            Log.d(TAG, "Background location explanation already shown, user declined permanently")
+            return
+        }
         if (backgroundPermissionPromptedThisSession) {
             Log.d(TAG, "Background location already prompted this session, skipping")
             return
@@ -391,6 +397,42 @@ class MainActivity : HotwireActivity() {
 
         backgroundPermissionPromptedThisSession = true
         backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    }
+
+    private fun showBackgroundLocationExplanation() {
+        if (wasBackgroundLocationDialogShown()) return
+        markBackgroundLocationDialogShown()
+
+        AlertDialog.Builder(this)
+            .setTitle("Background Location")
+            .setMessage(
+                "Background location lets Groovitation find hangout spots near you and " +
+                "your friends — even when the app isn't open.\n\n" +
+                "Without it, we can only look while you're using the app."
+            )
+            .setPositiveButton("Enable background tracking") { dialog, _ ->
+                dialog.dismiss()
+                backgroundLocationPermissionLauncher.launch(
+                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                )
+            }
+            .setNegativeButton("I'm sure") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun wasBackgroundLocationDialogShown(): Boolean {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_BACKGROUND_LOCATION_DIALOG_SHOWN, false)
+    }
+
+    private fun markBackgroundLocationDialogShown() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_BACKGROUND_LOCATION_DIALOG_SHOWN, true)
+            .apply()
     }
 
     fun hasLocationPermission(): Boolean {
