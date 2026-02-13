@@ -13,8 +13,8 @@ android {
         applicationId = "io.blaha.groovitation"
         minSdk = 28
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.0.8"
+        versionCode = 10
+        versionName = "1.0.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -82,6 +82,9 @@ dependencies {
 
     // Google Play Services (Location)
     implementation("com.google.android.gms:play-services-location:21.0.1")
+
+    // WorkManager (background periodic tasks)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Biometric Authentication
     implementation("androidx.biometric:biometric:1.1.0")

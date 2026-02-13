@@ -22,10 +22,6 @@
     <!-- Wake lock for background tasks -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Foreground service for background location -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-
     <!-- Feature declarations -->
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
@@ -81,12 +77,17 @@
             </intent-filter>
         </service>
 
-        <!-- Background Location Tracking Service -->
+        <!-- Location Tracking Service (transition shim — will be removed in future release) -->
         <service
             android:name=".services.LocationTrackingService"
             android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="location" />
+            android:exported="false" />
+
+        <!-- Geofence transition receiver -->
+        <receiver
+            android:name=".services.GeofenceBroadcastReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <!-- Boot receiver to restart location tracking -->
         <receiver

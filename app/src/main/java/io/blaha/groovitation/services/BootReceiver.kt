@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 
 /**
  * Restarts background location tracking after device boot.
+ * Enqueues WorkManager periodic task instead of starting foreground service.
  */
 class BootReceiver : BroadcastReceiver() {
 
@@ -38,7 +39,8 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
-        Log.d(TAG, "Restarting location tracking service")
-        LocationTrackingService.startIfEnabled(context)
+        Log.d(TAG, "Restarting location tracking via WorkManager")
+        LocationWorker.enqueuePeriodicWork(context)
+        LocationWorker.enqueueOneShot(context)
     }
 }

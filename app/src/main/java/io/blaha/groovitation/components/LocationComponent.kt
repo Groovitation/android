@@ -1,7 +1,6 @@
 package io.blaha.groovitation.components
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Looper
 import android.util.Log
@@ -18,7 +17,9 @@ import dev.hotwire.core.bridge.BridgeDelegate
 import dev.hotwire.core.bridge.Message
 import dev.hotwire.navigation.destinations.HotwireDestination
 import io.blaha.groovitation.MainActivity
+import io.blaha.groovitation.services.GeofenceManager
 import io.blaha.groovitation.services.LocationTrackingService
+import io.blaha.groovitation.services.LocationWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -229,8 +230,7 @@ class LocationComponent(
     }
 
     /**
-     * Start true background service with 100m significant change updates.
-     * This survives app death and shows a persistent notification.
+     * Start background tracking via WorkManager + geofences.
      * Persists config so it restarts on boot.
      */
     private fun handleStartBackgroundService(message: Message) {
@@ -244,30 +244,28 @@ class LocationComponent(
 
         try {
             activity?.enableBackgroundTracking(personUuid)
-            Log.d(TAG, "Background location service enabled for $personUuid")
+            Log.d(TAG, "Background location tracking enabled for $personUuid")
             replyTo("startBackgroundService", ServiceReply(started = true))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start background service", e)
+            Log.e(TAG, "Failed to start background tracking", e)
             replyTo("startBackgroundService", ServiceReply(started = false, error = e.message))
         }
     }
 
     /**
-     * Stop the background location service.
+     * Stop background tracking — cancel WorkManager and remove geofences.
      */
     private fun handleStopBackgroundService(message: Message) {
         val context = fragment.context ?: return
 
-        val serviceIntent = Intent(context, LocationTrackingService::class.java).apply {
-            action = LocationTrackingService.ACTION_STOP
-        }
-
         try {
-            context.startService(serviceIntent)
-            Log.d(TAG, "Background location service stop requested")
+            LocationWorker.cancel(context)
+            GeofenceManager(context).removeAllGeofences()
+            LocationTrackingService.clearConfig(context)
+            Log.d(TAG, "Background location tracking stopped")
             replyTo("stopBackgroundService", ServiceReply(stopped = true))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop background service", e)
+            Log.e(TAG, "Failed to stop background tracking", e)
             replyTo("stopBackgroundService", ServiceReply(stopped = false, error = e.message))
         }
     }

@@ -26,7 +26,9 @@ import com.google.firebase.messaging.FirebaseMessaging
 import dev.hotwire.navigation.activities.HotwireActivity
 import dev.hotwire.navigation.navigator.NavigatorConfiguration
 import dev.hotwire.navigation.util.applyDefaultImeWindowInsets
+import io.blaha.groovitation.services.GeofenceManager
 import io.blaha.groovitation.services.LocationTrackingService
+import io.blaha.groovitation.services.LocationWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -507,8 +509,19 @@ class MainActivity : HotwireActivity() {
             return
         }
 
-        Log.d(TAG, "tryStartBackgroundTracking: all conditions met, starting service")
-        LocationTrackingService.startIfEnabled(this)
+        Log.d(TAG, "tryStartBackgroundTracking: all conditions met, starting geofence-based tracking")
+
+        // Stop old foreground service if running (upgrade path)
+        try {
+            val stopIntent = Intent(this, LocationTrackingService::class.java).apply {
+                action = LocationTrackingService.ACTION_STOP
+            }
+            startService(stopIntent)
+        } catch (_: Exception) { }
+
+        // Start geofence-based tracking via WorkManager
+        LocationWorker.enqueuePeriodicWork(this)
+        LocationWorker.enqueueOneShot(this)
     }
 
     /**
