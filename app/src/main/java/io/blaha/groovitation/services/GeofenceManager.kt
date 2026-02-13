@@ -63,7 +63,7 @@ class GeofenceManager(private val context: Context) {
     suspend fun refreshGeofences(lat: Double, lon: Double) {
         try {
             val geofenceData = fetchGeofencesFromServer(lat, lon)
-            if (geofenceData.isEmpty()) return
+            if (geofenceData.length() == 0) return
 
             // Remove existing geofences before registering new ones
             removeAllGeofences()
@@ -77,7 +77,7 @@ class GeofenceManager(private val context: Context) {
                 val id = gf.getString("id")
                 val latitude = gf.getDouble("latitude")
                 val longitude = gf.getDouble("longitude")
-                val radius = gf.getDouble("radiusMeters").toFloat
+                val radius = gf.getDouble("radiusMeters").toFloat()
                 val placeName = gf.optString("placeName", "")
                 val interestName = gf.optString("interestName", "")
 
