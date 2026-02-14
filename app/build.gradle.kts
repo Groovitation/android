@@ -13,8 +13,8 @@ android {
         applicationId = "io.blaha.groovitation"
         minSdk = 28
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0.9"
+        versionCode = 11
+        versionName = "1.0.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -70,6 +70,9 @@ dependencies {
 
     // Material Design
     implementation("com.google.android.material:material:1.11.0")
+
+    // Custom Tabs (for OAuth browser flow)
+    implementation("androidx.browser:browser:1.7.0")
 
     // Navigation
     implementation("androidx.navigation:navigation-fragment-ktx:2.7.6")

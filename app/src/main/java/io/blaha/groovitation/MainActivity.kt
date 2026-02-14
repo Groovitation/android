@@ -203,7 +203,16 @@ class MainActivity : HotwireActivity() {
             }
 
             it.data?.let { uri ->
-                if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
+                if (uri.scheme == "groovitation" && uri.host == "oauth-callback") {
+                    // OAuth flow completed in Custom Tab — authenticate in WebView
+                    val token = uri.getQueryParameter("token")
+                    val redirect = uri.getQueryParameter("redirect") ?: "/"
+                    if (token != null) {
+                        Log.d(TAG, "OAuth callback received, authenticating in WebView")
+                        val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=$token&redirect=$redirect"
+                        delegate.currentNavigator?.route(authUrl)
+                    }
+                } else if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
                     updateBottomNavForPath(path)

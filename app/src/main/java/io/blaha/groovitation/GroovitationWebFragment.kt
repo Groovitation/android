@@ -1,12 +1,14 @@
 package io.blaha.groovitation
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.webkit.HttpAuthHandler
 import android.webkit.JavascriptInterface
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.NotificationManagerCompat
 import dev.hotwire.core.turbo.webview.HotwireWebView
 import dev.hotwire.navigation.destinations.HotwireDestinationDeepLink
@@ -130,6 +132,19 @@ class GroovitationWebFragment : HotwireWebFragment() {
         fun syncBottomNav(path: String) {
             activity?.runOnUiThread {
                 (activity as? MainActivity)?.syncBottomNavTab(path)
+            }
+        }
+
+        @JavascriptInterface
+        fun openInBrowser(url: String) {
+            Log.d(TAG, "openInBrowser: $url")
+            activity?.let { act ->
+                act.runOnUiThread {
+                    val customTabsIntent = CustomTabsIntent.Builder()
+                        .setShowTitle(true)
+                        .build()
+                    customTabsIntent.launchUrl(act, Uri.parse(url))
+                }
             }
         }
 
