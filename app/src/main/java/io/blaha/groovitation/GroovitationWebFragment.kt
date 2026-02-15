@@ -158,56 +158,83 @@ class GroovitationWebFragment : HotwireWebFragment() {
             Log.d(TAG, "requestFreshLocation called from JavaScript")
             val mainActivity = activity as? MainActivity ?: return
             val context = mainActivity.applicationContext
-            
+
             val fusedClient = com.google.android.gms.location.LocationServices
                 .getFusedLocationProviderClient(context)
-            
+
+            // First: dispatch cached last-known location immediately (from any app's
+            // previous GPS fix). This gives the user a position within milliseconds
+            // while we wait for a fresh GPS fix which can take 30-60s cold.
+            try {
+                fusedClient.lastLocation.addOnSuccessListener { lastLoc ->
+                    if (lastLoc != null) {
+                        Log.d(TAG, "Dispatching cached lastLocation: ${lastLoc.latitude}, ${lastLoc.longitude} (${lastLoc.accuracy}m)")
+                        dispatchLocationToWeb(lastLoc)
+                    }
+                }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "lastLocation permission denied", e)
+            }
+
+            // Then: request fresh high-accuracy GPS updates.
+            // Give GPS 60 seconds to acquire a cold fix — 10s was too short
+            // for areas with poor satellite visibility.
             val locationRequest = com.google.android.gms.location.LocationRequest.Builder(
                 com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY,
-                1000L
+                2000L
             )
-                .setMaxUpdates(5)
-                .setDurationMillis(10000L)
+                .setMaxUpdates(15)
+                .setDurationMillis(60000L)
                 .build()
-            
+
             var bestLocation: android.location.Location? = null
+            var dispatched = false
             var updateCount = 0
-            
+
             val callback = object : com.google.android.gms.location.LocationCallback() {
                 override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
                     val location = result.lastLocation ?: return
                     updateCount++
                     Log.d(TAG, "Fresh location #$updateCount: ${location.latitude}, ${location.longitude} (${location.accuracy}m)")
-                    
+
                     if (bestLocation == null || location.accuracy < bestLocation!!.accuracy) {
                         bestLocation = location
                     }
-                    
-                    // Accept if good accuracy or enough samples
-                    if (location.accuracy < 50 || updateCount >= 5) {
+
+                    // Dispatch first usable fix immediately, then keep refining
+                    if (!dispatched) {
+                        dispatched = true
+                        dispatchLocationToWeb(location)
+                    }
+
+                    // Stop when we have good accuracy or enough samples
+                    if (location.accuracy < 50 || updateCount >= 15) {
                         fusedClient.removeLocationUpdates(this)
-                        dispatchLocationToWeb(bestLocation!!)
+                        if (bestLocation!!.accuracy < location.accuracy) {
+                            // We had a better fix earlier — re-dispatch the best
+                            dispatchLocationToWeb(bestLocation!!)
+                        }
                     }
                 }
             }
-            
+
             try {
                 fusedClient.requestLocationUpdates(
                     locationRequest,
                     callback,
                     android.os.Looper.getMainLooper()
                 )
-                
-                // Timeout after 12 seconds
+
+                // Timeout after 65 seconds (slightly longer than duration)
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     fusedClient.removeLocationUpdates(callback)
                     val loc = bestLocation
-                    if (loc != null) {
+                    if (loc != null && !dispatched) {
                         dispatchLocationToWeb(loc)
-                    } else {
-                        dispatchLocationError("Could not get location")
+                    } else if (loc == null && !dispatched) {
+                        dispatchLocationError("Could not get location after 65s")
                     }
-                }, 12000L)
+                }, 65000L)
             } catch (e: SecurityException) {
                 Log.e(TAG, "Location permission denied", e)
                 dispatchLocationError("Location permission denied")
