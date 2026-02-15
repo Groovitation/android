@@ -108,6 +108,12 @@ class MainActivity : HotwireActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Pre-cache HTTP Basic Auth credentials so the first WebView request
+        // doesn't trigger a 401 that Hotwire interprets as a page load failure.
+        // Without this, cold start shows "Error loading page" because the in-memory
+        // credential cache is lost when the app process is killed.
+        preCacheHttpAuth()
+
         // Apply window insets to the nav host
         findViewById<View>(R.id.main_nav_host).applyDefaultImeWindowInsets()
 
@@ -125,6 +131,14 @@ class MainActivity : HotwireActivity() {
         Log.d(TAG, "MainActivity onCreate completed, navigatorConfigurations: ${navigatorConfigurations()}")
         requestNotificationPermission()
         handleIntent(intent)
+    }
+
+    private fun preCacheHttpAuth() {
+        val host = "groovitation.blaha.io"
+        val realm = "Restricted groovitation.blaha.io"
+        @Suppress("DEPRECATION")
+        android.webkit.WebViewDatabase.getInstance(this)
+            .setHttpAuthUsernamePassword(host, realm, "groovitation", "aldoofra")
     }
 
     private val bottomNavListener =
