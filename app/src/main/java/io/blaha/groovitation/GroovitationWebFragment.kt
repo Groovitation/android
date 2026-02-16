@@ -10,6 +10,7 @@ import android.webkit.HttpAuthHandler
 import android.webkit.JavascriptInterface
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.NotificationManagerCompat
+import dev.hotwire.core.turbo.errors.VisitError
 import dev.hotwire.core.turbo.webview.HotwireWebView
 import dev.hotwire.navigation.destinations.HotwireDestinationDeepLink
 import dev.hotwire.navigation.fragments.HotwireWebFragment
@@ -30,10 +31,38 @@ class GroovitationWebFragment : HotwireWebFragment() {
     }
 
     private var attachedWebView: HotwireWebView? = null
+    private var hasSuccessfulVisit = false
+    private var coldBootRetryCount = 0
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         Log.d(TAG, "GroovitationWebFragment onViewCreated")
+    }
+
+    override fun onColdBootPageCompleted(location: String) {
+        super.onColdBootPageCompleted(location)
+        hasSuccessfulVisit = true
+    }
+
+    override fun onVisitCompleted(location: String, completedOffline: Boolean) {
+        super.onVisitCompleted(location, completedOffline)
+        hasSuccessfulVisit = true
+    }
+
+    override fun onVisitErrorReceived(location: String, error: VisitError) {
+        // On cold start from a stopped state, the first page load can fail because
+        // Hotwire's onReceivedHttpError fires for the nginx 401 Basic Auth challenge
+        // before onReceivedHttpAuthRequest can provide credentials. The WebView handles
+        // the auth retry, but Hotwire has already reset the session and shown the error
+        // view. Auto-retry: by the second attempt, auth credentials are in WebView's
+        // memory cache and the request succeeds without a 401.
+        if (!hasSuccessfulVisit && coldBootRetryCount < 2) {
+            coldBootRetryCount++
+            Log.d(TAG, "Cold boot visit failed ($error), retry #$coldBootRetryCount: $location")
+            view?.postDelayed({ refresh(true) }, 500)
+            return
+        }
+        super.onVisitErrorReceived(location, error)
     }
 
     override fun onWebViewAttached(webView: HotwireWebView) {
