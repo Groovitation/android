@@ -180,6 +180,14 @@ class MainActivity : HotwireActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Flush cookies to disk so the session cookie survives process kill.
+        // Without this, CookieManager's async background sync may not have
+        // completed before Android kills the process on swipe-away.
+        CookieManager.getInstance().flush()
+    }
+
     override fun onResume() {
         super.onResume()
         LocationTrackingService.refreshCookie(this)
