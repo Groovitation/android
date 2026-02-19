@@ -18,37 +18,7 @@ variables:
         local out_file="app/google-services.json"
         mkdir -p app
         write_stub_google_services_json() {
-          cat > "${out_file}" <<'JSON'
-{
-  "project_info": {
-    "project_number": "1234567890",
-    "project_id": "groovitation-ci",
-    "storage_bucket": "groovitation-ci.appspot.com"
-  },
-  "client": [
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:1234567890:android:ci-placeholder",
-        "android_client_info": {
-          "package_name": "io.blaha.groovitation"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "ci-placeholder-key"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    }
-  ],
-  "configuration_version": "1"
-}
-JSON
+          printf '%s\n' '{"project_info":{"project_number":"1234567890","project_id":"groovitation-ci","storage_bucket":"groovitation-ci.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:ci-placeholder","android_client_info":{"package_name":"io.blaha.groovitation"}},"oauth_client":[],"api_key":[{"current_key":"ci-placeholder-key"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}' > "${out_file}"
         }
 
         if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
