@@ -12,7 +12,49 @@ variables:
 # Android SDK is downloaded per-job to android-sdk/ directory
 .android_setup: &android_setup
   before_script:
-    - echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+    - |
+      set -euo pipefail
+      write_google_services_json() {
+        local out_file="app/google-services.json"
+        mkdir -p app
+        write_stub_google_services_json() {
+          printf '%s\n' '{"project_info":{"project_number":"1234567890","project_id":"groovitation-ci","storage_bucket":"groovitation-ci.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:ci-placeholder","android_client_info":{"package_name":"io.blaha.groovitation"}},"oauth_client":[],"api_key":[{"current_key":"ci-placeholder-key"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}' > "${out_file}"
+        }
+
+        if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
+          printf '%s' "${GOOGLE_SERVICES_JSON_B64}" | tr -d '\r\n ' | base64 -d > "${out_file}" || {
+            echo "ERROR: GOOGLE_SERVICES_JSON_B64 could not be base64-decoded"
+            exit 1
+          }
+          return 0
+        fi
+
+        if [ -z "${GOOGLE_SERVICES_JSON:-}" ]; then
+          if [ "${CI_COMMIT_BRANCH:-}" = "main" ]; then
+            echo "ERROR: Missing Google services config on main. Set GOOGLE_SERVICES_JSON_B64 (preferred) or GOOGLE_SERVICES_JSON."
+            exit 1
+          fi
+          echo "WARN: Missing Google services config on branch build; generating CI placeholder google-services.json"
+          write_stub_google_services_json
+          return 0
+        fi
+
+        # Primary path: literal JSON stored in CI variable.
+        printf '%s' "${GOOGLE_SERVICES_JSON}" > "${out_file}"
+
+        # Some CI setups store JSON with escaped newlines/quotes; retry after unescaping if needed.
+        if ! python3 -m json.tool "${out_file}" >/dev/null 2>&1; then
+          printf '%b' "${GOOGLE_SERVICES_JSON}" > "${out_file}"
+        fi
+      }
+
+      write_google_services_json
+      if ! python3 -m json.tool app/google-services.json >/dev/null 2>&1; then
+        bytes="$(wc -c < app/google-services.json | tr -d ' ')"
+        echo "ERROR: app/google-services.json is not valid JSON (bytes=${bytes})."
+        echo "Set GOOGLE_SERVICES_JSON_B64 to a base64-encoded JSON payload to avoid formatting issues."
+        exit 1
+      fi
     - export ANDROID_HOME="${PWD}/android-sdk"
     - mkdir -p $ANDROID_HOME/cmdline-tools
     - |
