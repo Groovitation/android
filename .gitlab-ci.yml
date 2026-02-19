@@ -17,6 +17,39 @@ variables:
       write_google_services_json() {
         local out_file="app/google-services.json"
         mkdir -p app
+        write_stub_google_services_json() {
+          cat > "${out_file}" <<'JSON'
+{
+  "project_info": {
+    "project_number": "1234567890",
+    "project_id": "groovitation-ci",
+    "storage_bucket": "groovitation-ci.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1234567890:android:ci-placeholder",
+        "android_client_info": {
+          "package_name": "io.blaha.groovitation"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "ci-placeholder-key"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
+JSON
+        }
 
         if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
           printf '%s' "${GOOGLE_SERVICES_JSON_B64}" | tr -d '\r\n ' | base64 -d > "${out_file}" || {
@@ -27,8 +60,13 @@ variables:
         fi
 
         if [ -z "${GOOGLE_SERVICES_JSON:-}" ]; then
-          echo "ERROR: Missing Google services config. Set GOOGLE_SERVICES_JSON_B64 (preferred) or GOOGLE_SERVICES_JSON."
-          exit 1
+          if [ "${CI_COMMIT_BRANCH:-}" = "main" ]; then
+            echo "ERROR: Missing Google services config on main. Set GOOGLE_SERVICES_JSON_B64 (preferred) or GOOGLE_SERVICES_JSON."
+            exit 1
+          fi
+          echo "WARN: Missing Google services config on branch build; generating CI placeholder google-services.json"
+          write_stub_google_services_json
+          return 0
         fi
 
         # Primary path: literal JSON stored in CI variable.
