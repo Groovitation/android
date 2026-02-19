@@ -144,8 +144,8 @@ class MainActivity : HotwireActivity() {
     private val bottomNavListener =
         NavigationBarView.OnItemSelectedListener { item ->
             val path = when (item.itemId) {
+                R.id.nav_home -> "/"
                 R.id.nav_map -> "/map"
-                R.id.nav_plan -> "/plan"
                 R.id.nav_friends -> "/friends"
                 R.id.nav_interests -> "/interests"
                 R.id.nav_account -> "/users/edit"
@@ -165,14 +165,7 @@ class MainActivity : HotwireActivity() {
     }
 
     fun syncBottomNavTab(path: String) {
-        val itemId = when {
-            path.startsWith("/map") -> R.id.nav_map
-            path.startsWith("/plan") -> R.id.nav_plan
-            path.startsWith("/friends") -> R.id.nav_friends
-            path.startsWith("/interests") -> R.id.nav_interests
-            path.startsWith("/users/edit") -> R.id.nav_account
-            else -> return
-        }
+        val itemId = navItemIdForPath(path) ?: return
         if (bottomNavigation.selectedItemId != itemId) {
             bottomNavigation.setOnItemSelectedListener(null)
             bottomNavigation.selectedItemId = itemId
@@ -250,16 +243,20 @@ class MainActivity : HotwireActivity() {
     }
 
     private fun updateBottomNavForPath(path: String) {
-        val itemId = when {
+        val itemId = navItemIdForPath(path)
+        if (itemId != null && bottomNavigation.selectedItemId != itemId) {
+            bottomNavigation.selectedItemId = itemId
+        }
+    }
+
+    private fun navItemIdForPath(path: String): Int? {
+        return when {
             path.startsWith("/map") -> R.id.nav_map
-            path.startsWith("/plan") -> R.id.nav_plan
             path.startsWith("/friends") -> R.id.nav_friends
             path.startsWith("/interests") -> R.id.nav_interests
             path.startsWith("/users/edit") -> R.id.nav_account
+            path == "/" || path.isBlank() -> R.id.nav_home
             else -> null
-        }
-        if (itemId != null && bottomNavigation.selectedItemId != itemId) {
-            bottomNavigation.selectedItemId = itemId
         }
     }
 
