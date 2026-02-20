@@ -322,4 +322,19 @@ class GroovitationWebFragment : HotwireWebFragment() {
             webView.evaluateJavascript(script, null)
         }
     }
+
+    fun requestFreshLocationOnResume() {
+        val webView = attachedWebView ?: return
+        val script = """
+            (function() {
+              if (window.GroovitationNative &&
+                  typeof window.GroovitationNative.requestFreshLocation === 'function') {
+                window.GroovitationNative.requestFreshLocation();
+              }
+            })();
+        """.trimIndent()
+        webView.post {
+            webView.evaluateJavascript(script, null)
+        }
+    }
 }

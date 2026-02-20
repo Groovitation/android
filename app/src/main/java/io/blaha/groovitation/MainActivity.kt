@@ -185,6 +185,9 @@ class MainActivity : HotwireActivity() {
         super.onResume()
         LocationTrackingService.refreshCookie(this)
         tryStartBackgroundTracking()
+        if (hasLocationPermission()) {
+            activeWebFragment?.requestFreshLocationOnResume()
+        }
         checkForAppUpdate()
     }
 
