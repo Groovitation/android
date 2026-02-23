@@ -49,7 +49,9 @@ class LocationWorker(
         private const val PREFS_NAME = "location_tracking_prefs"
         private const val KEY_LAST_GEOFENCE_LAT = "last_geofence_lat"
         private const val KEY_LAST_GEOFENCE_LNG = "last_geofence_lng"
+        private const val KEY_LAST_GEOFENCE_REFRESH_TIME = "last_geofence_refresh_time"
         private const val GEOFENCE_REFRESH_DISTANCE_M = 500.0 // Refresh geofences if moved 500m
+        private const val GEOFENCE_MAX_AGE_MS = 12 * 60 * 60 * 1000L // Re-register geofences every 12 hours
 
         fun enqueuePeriodicWork(context: Context) {
             val constraints = Constraints.Builder()
@@ -141,23 +143,27 @@ class LocationWorker(
                 if (location.hasAltitude()) location.altitude else null
             )
 
-            // 3. Refresh geofences if moved significantly
+            // 3. Refresh geofences if moved significantly or they're stale
             val lastLat = prefs.getFloat(KEY_LAST_GEOFENCE_LAT, 0f).toDouble()
             val lastLng = prefs.getFloat(KEY_LAST_GEOFENCE_LNG, 0f).toDouble()
+            val lastRefreshTime = prefs.getLong(KEY_LAST_GEOFENCE_REFRESH_TIME, 0L)
+            val timeSinceRefresh = System.currentTimeMillis() - lastRefreshTime
             val distance = if (lastLat == 0.0 && lastLng == 0.0) {
                 Double.MAX_VALUE // Force refresh on first run
             } else {
                 haversineDistance(location.latitude, location.longitude, lastLat, lastLng)
             }
 
-            if (distance > GEOFENCE_REFRESH_DISTANCE_M) {
-                Log.d(TAG, "Moved ${distance.toInt()}m, refreshing geofences")
+            if (distance > GEOFENCE_REFRESH_DISTANCE_M || timeSinceRefresh > GEOFENCE_MAX_AGE_MS) {
+                val reason = if (distance > GEOFENCE_REFRESH_DISTANCE_M) "moved ${distance.toInt()}m" else "stale (${timeSinceRefresh / 3600000}h)"
+                Log.d(TAG, "Refreshing geofences: $reason")
                 val geofenceManager = GeofenceManager(applicationContext)
                 geofenceManager.refreshGeofences(location.latitude, location.longitude)
 
                 prefs.edit()
                     .putFloat(KEY_LAST_GEOFENCE_LAT, location.latitude.toFloat())
                     .putFloat(KEY_LAST_GEOFENCE_LNG, location.longitude.toFloat())
+                    .putLong(KEY_LAST_GEOFENCE_REFRESH_TIME, System.currentTimeMillis())
                     .apply()
             } else {
                 Log.d(TAG, "Moved only ${distance.toInt()}m, skipping geofence refresh")
@@ -195,6 +201,7 @@ class LocationWorker(
                 put("longitude", longitude)
                 put("accuracy", accuracy)
                 altitude?.let { put("altitude", it) }
+                put("deviceType", "android")
                 put("timestamp", System.currentTimeMillis())
             }
 

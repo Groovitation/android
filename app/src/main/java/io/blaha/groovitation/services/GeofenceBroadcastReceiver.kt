@@ -29,6 +29,8 @@ import java.util.concurrent.TimeUnit
  *
  * On ENTER: posts location to server and shows a contextual notification.
  * On EXIT: posts location update to server (no notification).
+ *
+ * Uses goAsync() to keep the process alive while the HTTP POST completes.
  */
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
@@ -40,9 +42,9 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     }
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -66,14 +68,12 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val metadataStr = prefs.getString(KEY_GEOFENCE_METADATA, null)
         val metadata = if (metadataStr != null) JSONObject(metadataStr) else JSONObject()
 
+        // Use goAsync() to extend the receiver's lifetime while the HTTP POST completes
+        val pendingResult = goAsync()
+
         when (transition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
-                // Post location to server
-                if (location != null) {
-                    postLocation(context, location.latitude, location.longitude, location.accuracy.toDouble())
-                }
-
-                // Show notification for each triggered geofence
+                // Show notification immediately (no network needed)
                 for (geofence in triggeringGeofences) {
                     val gfMeta = metadata.optJSONObject(geofence.requestId)
                     val placeName = gfMeta?.optString("placeName", "a place") ?: "a place"
@@ -87,13 +87,23 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
                     showNotification(context, geofence.requestId, placeName, message)
                 }
+
+                // Post location to server
+                if (location != null) {
+                    postLocation(context, location.latitude, location.longitude, location.accuracy.toDouble(), pendingResult)
+                } else {
+                    pendingResult.finish()
+                }
             }
             Geofence.GEOFENCE_TRANSITION_EXIT -> {
                 // Post location update on exit (no notification)
                 if (location != null) {
-                    postLocation(context, location.latitude, location.longitude, location.accuracy.toDouble())
+                    postLocation(context, location.latitude, location.longitude, location.accuracy.toDouble(), pendingResult)
+                } else {
+                    pendingResult.finish()
                 }
             }
+            else -> pendingResult.finish()
         }
     }
 
@@ -127,12 +137,18 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun postLocation(context: Context, latitude: Double, longitude: Double, accuracy: Double) {
+    private fun postLocation(context: Context, latitude: Double, longitude: Double, accuracy: Double, pendingResult: PendingResult) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val personUuid = prefs.getString("person_uuid", null) ?: return
+        val personUuid = prefs.getString("person_uuid", null) ?: run {
+            pendingResult.finish()
+            return
+        }
         val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
             ?: prefs.getString(LocationTrackingService.KEY_SESSION_COOKIE, null)
-            ?: return
+            ?: run {
+                pendingResult.finish()
+                return
+            }
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -140,6 +156,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     put("latitude", latitude)
                     put("longitude", longitude)
                     put("accuracy", accuracy)
+                    put("deviceType", "android")
                     put("timestamp", System.currentTimeMillis())
                 }
 
@@ -159,6 +176,8 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 response.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error posting location", e)
+            } finally {
+                pendingResult.finish()
             }
         }
     }

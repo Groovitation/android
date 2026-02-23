@@ -36,7 +36,9 @@ class GeofenceManager(private val context: Context) {
         private const val PREFS_NAME = "location_tracking_prefs"
         private const val KEY_GEOFENCE_IDS = "registered_geofence_ids"
         private const val KEY_GEOFENCE_METADATA = "geofence_metadata"
-        private const val GEOFENCE_EXPIRATION_MS = 24 * 60 * 60 * 1000L // 24 hours
+        // NEVER_EXPIRE: geofences persist until explicitly removed or device reboot.
+        // BootReceiver + LocationWorker time-based refresh handle re-registration.
+        private const val GEOFENCE_EXPIRATION_MS = Geofence.NEVER_EXPIRE
     }
 
     private val geofencingClient: GeofencingClient =

@@ -39,6 +39,15 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
+        // Clear stored geofence position so the one-shot worker forces a geofence refresh.
+        // Geofences are lost on reboot (even with NEVER_EXPIRE), so we need re-registration.
+        val prefs = context.getSharedPreferences("location_tracking_prefs", Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove("last_geofence_lat")
+            .remove("last_geofence_lng")
+            .remove("last_geofence_refresh_time")
+            .apply()
+
         Log.d(TAG, "Restarting location tracking via WorkManager")
         LocationWorker.enqueuePeriodicWork(context)
         LocationWorker.enqueueOneShot(context)
