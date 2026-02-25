@@ -59,6 +59,7 @@ class MainActivity : HotwireActivity() {
     private val httpClient = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO)
     private var activeWebFragment: GroovitationWebFragment? = null
+    private lateinit var foregroundLocationManager: io.blaha.groovitation.services.ForegroundLocationManager
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -128,6 +129,8 @@ class MainActivity : HotwireActivity() {
             insets
         }
 
+        foregroundLocationManager = io.blaha.groovitation.services.ForegroundLocationManager(applicationContext)
+
         Log.d(TAG, "MainActivity onCreate completed, navigatorConfigurations: ${navigatorConfigurations()}")
         requestNotificationPermission()
         handleIntent(intent)
@@ -186,7 +189,12 @@ class MainActivity : HotwireActivity() {
         LocationTrackingService.refreshCookie(this)
         tryStartBackgroundTracking()
         if (hasLocationPermission()) {
-            activeWebFragment?.requestFreshLocationOnResume()
+            // Native foreground GPS — posts directly to server, dispatches to WebView for map
+            foregroundLocationManager.requestForegroundFix(
+                webDispatcher = { location ->
+                    activeWebFragment?.dispatchNativeLocationToWeb(location)
+                }
+            )
         }
         checkForAppUpdate()
     }

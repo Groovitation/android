@@ -157,6 +157,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     put("longitude", longitude)
                     put("accuracy", accuracy)
                     put("deviceType", "android")
+                    put("source", "geofence")
                     put("timestamp", System.currentTimeMillis())
                 }
 

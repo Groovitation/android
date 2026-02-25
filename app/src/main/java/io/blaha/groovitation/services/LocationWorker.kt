@@ -202,6 +202,7 @@ class LocationWorker(
                 put("accuracy", accuracy)
                 altitude?.let { put("altitude", it) }
                 put("deviceType", "android")
+                put("source", "background")
                 put("timestamp", System.currentTimeMillis())
             }
 

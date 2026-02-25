@@ -191,21 +191,14 @@ class GroovitationWebFragment : HotwireWebFragment() {
             val fusedClient = com.google.android.gms.location.LocationServices
                 .getFusedLocationProviderClient(context)
 
-            // First: dispatch cached last-known location immediately (from any app's
-            // previous GPS fix). This gives the user a position within milliseconds
-            // while we wait for a fresh GPS fix which can take 30-60s cold.
-            try {
-                fusedClient.lastLocation.addOnSuccessListener { lastLoc ->
-                    if (lastLoc != null) {
-                        Log.d(TAG, "Dispatching cached lastLocation: ${lastLoc.latitude}, ${lastLoc.longitude} (${lastLoc.accuracy}m)")
-                        dispatchLocationToWeb(lastLoc)
-                    }
-                }
-            } catch (e: SecurityException) {
-                Log.w(TAG, "lastLocation permission denied", e)
-            }
+            // NOTE: We no longer dispatch the cached lastLocation here. It was causing
+            // a stale location feedback loop: old cached GPS coords were dispatched to the
+            // web, re-sent to the server by geolocation.js, and recorded with a fresh
+            // timestamp — making the server think the user was still at the old location.
+            // ForegroundLocationManager now handles aggressive GPS on app resume and posts
+            // directly to the server.
 
-            // Then: request fresh high-accuracy GPS updates.
+            // Request fresh high-accuracy GPS updates.
             // Give GPS 60 seconds to acquire a cold fix — 10s was too short
             // for areas with poor satellite visibility.
             val locationRequest = com.google.android.gms.location.LocationRequest.Builder(
@@ -335,6 +328,31 @@ class GroovitationWebFragment : HotwireWebFragment() {
         """.trimIndent()
         webView.post {
             webView.evaluateJavascript(script, null)
+        }
+    }
+
+    /**
+     * Dispatch a native foreground GPS fix to the WebView for map updates.
+     * Uses the same 'groovitation:location' event so existing map listeners work,
+     * but includes source='foreground-gps' so geolocation.js knows not to re-send
+     * it to the server (the native code already posted it directly).
+     */
+    fun dispatchNativeLocationToWeb(location: android.location.Location) {
+        val script = """
+            window.dispatchEvent(new CustomEvent('groovitation:location', {
+                detail: {
+                    success: true,
+                    latitude: ${location.latitude},
+                    longitude: ${location.longitude},
+                    accuracy: ${location.accuracy},
+                    altitude: ${if (location.hasAltitude()) location.altitude else "null"},
+                    source: 'foreground-gps'
+                }
+            }));
+        """.trimIndent()
+
+        activity?.runOnUiThread {
+            attachedWebView?.evaluateJavascript(script, null)
         }
     }
 }
