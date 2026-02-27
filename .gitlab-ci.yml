@@ -65,7 +65,7 @@ variables:
       fi
     - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
     - yes | sdkmanager --licenses > /dev/null 2>&1 || true
-    - sdkmanager "platform-tools" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" > /dev/null
+    - sdkmanager "platform-tools" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" "build-tools;34.0.0" > /dev/null
     - chmod +x ./gradlew
 
 build:
