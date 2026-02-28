@@ -203,15 +203,26 @@ class GroovitationWebFragment : HotwireWebFragment() {
             // for areas with poor satellite visibility.
             val locationRequest = com.google.android.gms.location.LocationRequest.Builder(
                 com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY,
-                2000L
+                1500L
             )
-                .setMaxUpdates(15)
+                .setMaxUpdates(40)
                 .setDurationMillis(60000L)
                 .build()
 
             var bestLocation: android.location.Location? = null
-            var dispatched = false
+            var dispatchedAny = false
             var updateCount = 0
+            var lastDispatchedLocation: android.location.Location? = null
+            var lastDispatchMs = 0L
+
+            fun shouldDispatch(location: android.location.Location): Boolean {
+                if (!dispatchedAny) return true
+                val previous = lastDispatchedLocation ?: return true
+                val movedMeters = previous.distanceTo(location)
+                val elapsedMs = System.currentTimeMillis() - lastDispatchMs
+                val accuracyImproved = location.accuracy + 10f < previous.accuracy
+                return movedMeters >= 10f || elapsedMs >= 5000L || accuracyImproved
+            }
 
             val callback = object : com.google.android.gms.location.LocationCallback() {
                 override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
@@ -223,18 +234,24 @@ class GroovitationWebFragment : HotwireWebFragment() {
                         bestLocation = location
                     }
 
-                    // Dispatch first usable fix immediately, then keep refining
-                    if (!dispatched) {
-                        dispatched = true
+                    // Stream significant movement/accuracy improvements to WebView
+                    if (shouldDispatch(location)) {
+                        dispatchedAny = true
+                        lastDispatchedLocation = location
+                        lastDispatchMs = System.currentTimeMillis()
                         dispatchLocationToWeb(location)
                     }
 
                     // Stop when we have good accuracy or enough samples
-                    if (location.accuracy < 50 || updateCount >= 15) {
+                    if (location.accuracy < 50 || updateCount >= 40) {
                         fusedClient.removeLocationUpdates(this)
-                        if (bestLocation!!.accuracy < location.accuracy) {
-                            // We had a better fix earlier — re-dispatch the best
-                            dispatchLocationToWeb(bestLocation!!)
+                        val best = bestLocation
+                        if (best != null) {
+                            val shouldDispatchBest = lastDispatchedLocation == null ||
+                                best.accuracy + 5f < lastDispatchedLocation!!.accuracy
+                            if (shouldDispatchBest) {
+                                dispatchLocationToWeb(best)
+                            }
                         }
                     }
                 }
@@ -251,9 +268,9 @@ class GroovitationWebFragment : HotwireWebFragment() {
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     fusedClient.removeLocationUpdates(callback)
                     val loc = bestLocation
-                    if (loc != null && !dispatched) {
+                    if (loc != null && !dispatchedAny) {
                         dispatchLocationToWeb(loc)
-                    } else if (loc == null && !dispatched) {
+                    } else if (loc == null && !dispatchedAny) {
                         dispatchLocationError("Could not get location after 65s")
                     }
                 }, 65000L)

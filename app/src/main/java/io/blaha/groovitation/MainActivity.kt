@@ -195,6 +195,9 @@ class MainActivity : HotwireActivity() {
                     activeWebFragment?.dispatchNativeLocationToWeb(location)
                 }
             )
+            // Ensure map scripts that listen for fresh native location events
+            // receive an immediate resume-time update request as well.
+            activeWebFragment?.requestFreshLocationOnResume()
         }
         checkForAppUpdate()
     }
