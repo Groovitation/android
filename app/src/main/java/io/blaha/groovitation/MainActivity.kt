@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.webkit.CookieManager
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationCompat
@@ -60,6 +61,7 @@ class MainActivity : HotwireActivity() {
     private val scope = CoroutineScope(Dispatchers.IO)
     private var activeWebFragment: GroovitationWebFragment? = null
     private lateinit var foregroundLocationManager: io.blaha.groovitation.services.ForegroundLocationManager
+    private lateinit var modalAwareBackCallback: OnBackPressedCallback
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -130,10 +132,38 @@ class MainActivity : HotwireActivity() {
         }
 
         foregroundLocationManager = io.blaha.groovitation.services.ForegroundLocationManager(applicationContext)
+        installModalAwareBackHandler()
 
         Log.d(TAG, "MainActivity onCreate completed, navigatorConfigurations: ${navigatorConfigurations()}")
         requestNotificationPermission()
         handleIntent(intent)
+    }
+
+    private fun installModalAwareBackHandler() {
+        modalAwareBackCallback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val fragment = activeWebFragment
+                if (fragment == null) {
+                    continueDefaultBackNavigation()
+                    return
+                }
+
+                fragment.closeTopWebModalIfOpen { consumed ->
+                    if (consumed) {
+                        Log.d(TAG, "Back press consumed by web modal close")
+                    } else {
+                        continueDefaultBackNavigation()
+                    }
+                }
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, modalAwareBackCallback)
+    }
+
+    private fun continueDefaultBackNavigation() {
+        modalAwareBackCallback.isEnabled = false
+        onBackPressedDispatcher.onBackPressed()
+        modalAwareBackCallback.isEnabled = true
     }
 
     private fun preCacheHttpAuth() {

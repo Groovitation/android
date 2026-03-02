@@ -78,6 +78,67 @@ class GroovitationWebFragment : HotwireWebFragment() {
         attachedWebView = null
     }
 
+    /**
+     * Try to close the top-most visible modal in the active page.
+     * Returns true when a modal was found and closed, false otherwise.
+     */
+    fun closeTopWebModalIfOpen(onResult: (Boolean) -> Unit) {
+        val webView = attachedWebView
+        if (webView == null) {
+            onResult(false)
+            return
+        }
+
+        val script = """
+            (function() {
+              var selector = '.map-site-modal.is-open, .modal.show';
+              var getOpenModals = function() {
+                return Array.prototype.slice.call(document.querySelectorAll(selector));
+              };
+
+              var before = getOpenModals();
+              if (!before.length) return false;
+
+              // First try existing Escape handlers (supports stacked modal semantics).
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+              var afterEscape = getOpenModals();
+              if (afterEscape.length < before.length) return true;
+
+              // Fallback: close the last opened modal in DOM order.
+              var top = before[before.length - 1];
+              if (!top) return false;
+
+              if (top.classList.contains('show') && window.bootstrap && window.bootstrap.Modal) {
+                var instance = window.bootstrap.Modal.getInstance(top) || new window.bootstrap.Modal(top);
+                instance.hide();
+                return true;
+              }
+
+              var closeButton = top.querySelector(
+                '[data-bs-dismiss="modal"], [data-event-modal-close], [data-planned-modal-close], .btn-close, .map-site-modal__backdrop'
+              );
+              if (closeButton) {
+                closeButton.click();
+                return true;
+              }
+
+              top.classList.remove('is-open');
+              top.classList.remove('show');
+              top.setAttribute('aria-hidden', 'true');
+              document.body.classList.remove('map-site-modal-open');
+              document.body.classList.remove('modal-open');
+              return true;
+            })();
+        """.trimIndent()
+
+        webView.post {
+            webView.evaluateJavascript(script) { raw ->
+                val consumed = raw == "true"
+                activity?.runOnUiThread { onResult(consumed) } ?: onResult(consumed)
+            }
+        }
+    }
+
     override fun onReceivedHttpAuthRequest(
         handler: HttpAuthHandler,
         host: String,
