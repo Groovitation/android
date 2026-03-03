@@ -1,4 +1,4 @@
-# Issue #121 Plan - Android mobile tabs (r3)
+# Issue #121 Plan - Android mobile tabs (r4)
 
 1. Update bottom navigation labels/order to `Events | Map | Interests | Friends | Plan`.
 2. Restore `Plan` destination in bottom nav and map it to `/plan` in `MainActivity`.
