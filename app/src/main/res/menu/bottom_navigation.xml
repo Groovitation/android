@@ -20,4 +20,8 @@
         android:id="@+id/nav_plan"
         android:icon="@drawable/ic_nav_plan"
         android:title="Plan" />
+    <item
+        android:id="@+id/nav_account"
+        android:icon="@drawable/ic_nav_account"
+        android:title="Account" />
 </menu>
