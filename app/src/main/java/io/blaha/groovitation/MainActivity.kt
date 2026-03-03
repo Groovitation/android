@@ -149,9 +149,9 @@ class MainActivity : HotwireActivity() {
             val path = when (item.itemId) {
                 R.id.nav_home -> "/"
                 R.id.nav_map -> "/map"
-                R.id.nav_friends -> "/friends"
                 R.id.nav_interests -> "/interests"
-                R.id.nav_account -> "/users/edit"
+                R.id.nav_friends -> "/friends"
+                R.id.nav_plan -> "/plan"
                 else -> return@OnItemSelectedListener false
             }
 
@@ -266,9 +266,9 @@ class MainActivity : HotwireActivity() {
     private fun navItemIdForPath(path: String): Int? {
         return when {
             path.startsWith("/map") -> R.id.nav_map
-            path.startsWith("/friends") -> R.id.nav_friends
             path.startsWith("/interests") -> R.id.nav_interests
-            path.startsWith("/users/edit") -> R.id.nav_account
+            path.startsWith("/friends") -> R.id.nav_friends
+            path.startsWith("/plan") -> R.id.nav_plan
             path == "/" || path.isBlank() -> R.id.nav_home
             else -> null
         }
