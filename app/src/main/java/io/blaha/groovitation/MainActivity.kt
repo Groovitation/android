@@ -182,6 +182,7 @@ class MainActivity : HotwireActivity() {
                 R.id.nav_interests -> "/interests"
                 R.id.nav_friends -> "/friends"
                 R.id.nav_plan -> "/plan"
+                R.id.nav_account -> "/users/edit"
                 else -> return@OnItemSelectedListener false
             }
 
@@ -299,6 +300,7 @@ class MainActivity : HotwireActivity() {
             path.startsWith("/interests") -> R.id.nav_interests
             path.startsWith("/friends") -> R.id.nav_friends
             path.startsWith("/plan") -> R.id.nav_plan
+            path.startsWith("/users/edit") -> R.id.nav_account
             path == "/" || path.isBlank() -> R.id.nav_home
             else -> null
         }
