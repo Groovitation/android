@@ -128,6 +128,8 @@ emulator-smoke-test:
     - adb -s emulator-5554 shell settings put global window_animation_scale 0
     - adb -s emulator-5554 shell settings put global transition_animation_scale 0
     - adb -s emulator-5554 shell settings put global animator_duration_scale 0
+    - adb -s emulator-5554 uninstall io.blaha.groovitation || true
+    - adb -s emulator-5554 uninstall io.blaha.groovitation.test || true
     - ./gradlew connectedDebugAndroidTest --no-daemon
   after_script:
     - adb -s emulator-5554 emu kill || true
