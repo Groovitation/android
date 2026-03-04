@@ -131,8 +131,6 @@ emulator-smoke-test:
     reports:
       junit:
         - app/build/outputs/androidTest-results/connected/**/*.xml
-  when: manual
-  allow_failure: true
 
 deploy:
   stage: deploy

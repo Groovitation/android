@@ -118,8 +118,8 @@ buildConfigField("String", "USER_AGENT_EXTENSION", "\"Groovitation Android/1.0\"
 ./gradlew connectedAndroidTest
 ```
 
-CI currently runs the `test` job (`./gradlew test`) by default, which does not boot an emulator.
-Use the `emulator-smoke-test` CI job to run `connectedDebugAndroidTest` on a headless emulator.
+CI runs unit tests (`./gradlew test`) and an emulator smoke path (`connectedDebugAndroidTest`).
+The `emulator-smoke-test` job boots a headless emulator and executes instrumentation tests on every pipeline.
 
 ## Release
 
