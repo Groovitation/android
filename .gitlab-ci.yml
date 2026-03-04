@@ -112,7 +112,11 @@ emulator-smoke-test:
       done
     - sdkmanager "emulator" "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" > /dev/null
     - echo "no" | avdmanager create avd -n ci-api${ANDROID_COMPILE_SDK} -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
-    - emulator -avd ci-api${ANDROID_COMPILE_SDK} -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel off &
+    - |
+      emulator -avd ci-api${ANDROID_COMPILE_SDK} -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel off > /tmp/emulator.log 2>&1 &
+      EMULATOR_PID=$!
+      echo "Started emulator PID=${EMULATOR_PID}"
+      echo "${EMULATOR_PID}" > /tmp/emulator.pid
     - adb -s emulator-5554 wait-for-device
     - |
       boot_timeout=300
@@ -131,6 +135,8 @@ emulator-smoke-test:
     - adb -s emulator-5554 uninstall io.blaha.groovitation || true
     - adb -s emulator-5554 uninstall io.blaha.groovitation.test || true
     - ./gradlew connectedDebugAndroidTest --no-daemon
+    - timeout 10s adb -s emulator-5554 emu kill || true
+    - if [ -f /tmp/emulator.pid ]; then kill "$(cat /tmp/emulator.pid)" 2>/dev/null || true; fi
   after_script:
     - timeout 10s adb -s emulator-5554 emu kill || true
     - pkill -f "emulator.*-avd ci-api${ANDROID_COMPILE_SDK}" || true
