@@ -103,16 +103,21 @@ emulator-smoke-test:
   stage: test
   script:
     - export PATH=$PATH:$ANDROID_HOME/emulator
-    - sdkmanager "emulator" "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" > /dev/null
-    - echo "no" | avdmanager create avd -n ci-api${ANDROID_COMPILE_SDK} -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
+    - export ANDROID_SERIAL=emulator-5554
     - adb kill-server || true
     - adb start-server
+    - |
+      for serial in $(adb devices | awk '/^emulator-[0-9]+[[:space:]]+device$/{print $1}'); do
+        adb -s "$serial" emu kill || true
+      done
+    - sdkmanager "emulator" "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" > /dev/null
+    - echo "no" | avdmanager create avd -n ci-api${ANDROID_COMPILE_SDK} -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
     - emulator -avd ci-api${ANDROID_COMPILE_SDK} -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel off &
-    - adb wait-for-device
+    - adb -s emulator-5554 wait-for-device
     - |
       boot_timeout=300
       waited=0
-      until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
+      until [ "$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
         sleep 5
         waited=$((waited+5))
         if [ "$waited" -ge "$boot_timeout" ]; then
@@ -120,10 +125,9 @@ emulator-smoke-test:
           exit 1
         fi
       done
-    - adb shell settings put global window_animation_scale 0
-    - adb shell settings put global transition_animation_scale 0
-    - adb shell settings put global animator_duration_scale 0
-    - export ANDROID_SERIAL=emulator-5554
+    - adb -s emulator-5554 shell settings put global window_animation_scale 0
+    - adb -s emulator-5554 shell settings put global transition_animation_scale 0
+    - adb -s emulator-5554 shell settings put global animator_duration_scale 0
     - ./gradlew connectedDebugAndroidTest --no-daemon
   after_script:
     - adb -s emulator-5554 emu kill || true
