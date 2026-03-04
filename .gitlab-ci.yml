@@ -132,7 +132,10 @@ emulator-smoke-test:
     - adb -s emulator-5554 uninstall io.blaha.groovitation.test || true
     - ./gradlew connectedDebugAndroidTest --no-daemon
   after_script:
-    - adb -s emulator-5554 emu kill || true
+    - timeout 10s adb -s emulator-5554 emu kill || true
+    - pkill -f "emulator.*-avd ci-api${ANDROID_COMPILE_SDK}" || true
+    - pkill -f "qemu-system-x86_64.*ci-api${ANDROID_COMPILE_SDK}" || true
+    - adb kill-server || true
   artifacts:
     reports:
       junit:
