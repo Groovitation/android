@@ -105,7 +105,9 @@ emulator-smoke-test:
     - export PATH=$PATH:$ANDROID_HOME/emulator
     - sdkmanager "emulator" "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" > /dev/null
     - echo "no" | avdmanager create avd -n ci-api${ANDROID_COMPILE_SDK} -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
-    - emulator -avd ci-api${ANDROID_COMPILE_SDK} -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel off &
+    - adb kill-server || true
+    - adb start-server
+    - emulator -avd ci-api${ANDROID_COMPILE_SDK} -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel off &
     - adb wait-for-device
     - |
       boot_timeout=300
@@ -121,6 +123,7 @@ emulator-smoke-test:
     - adb shell settings put global window_animation_scale 0
     - adb shell settings put global transition_animation_scale 0
     - adb shell settings put global animator_duration_scale 0
+    - export ANDROID_SERIAL=emulator-5554
     - ./gradlew connectedDebugAndroidTest --no-daemon
   after_script:
     - adb -s emulator-5554 emu kill || true
