@@ -14,6 +14,7 @@ import dev.hotwire.core.turbo.errors.VisitError
 import dev.hotwire.core.turbo.webview.HotwireWebView
 import dev.hotwire.navigation.destinations.HotwireDestinationDeepLink
 import dev.hotwire.navigation.fragments.HotwireWebFragment
+import org.json.JSONObject
 
 /**
  * Custom WebFragment that handles HTTP Basic Authentication for groovitation.blaha.io
@@ -33,6 +34,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
     private var attachedWebView: HotwireWebView? = null
     private var hasSuccessfulVisit = false
     private var coldBootRetryCount = 0
+    private var styleRecoveryRetryCount = 0
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -42,11 +44,13 @@ class GroovitationWebFragment : HotwireWebFragment() {
     override fun onColdBootPageCompleted(location: String) {
         super.onColdBootPageCompleted(location)
         hasSuccessfulVisit = true
+        verifyStylesheetLoadAndRecover(location)
     }
 
     override fun onVisitCompleted(location: String, completedOffline: Boolean) {
         super.onVisitCompleted(location, completedOffline)
         hasSuccessfulVisit = true
+        verifyStylesheetLoadAndRecover(location)
     }
 
     override fun onVisitErrorReceived(location: String, error: VisitError) {
@@ -76,6 +80,85 @@ class GroovitationWebFragment : HotwireWebFragment() {
         super.onDestroyView()
         (activity as? MainActivity)?.unregisterWebFragment(this)
         attachedWebView = null
+        styleRecoveryRetryCount = 0
+    }
+
+    private fun verifyStylesheetLoadAndRecover(location: String) {
+        val webView = attachedWebView ?: return
+
+        val script = """
+            (function() {
+              try {
+                var sheetHrefs = Array.prototype.map.call(
+                  document.styleSheets || [],
+                  function(sheet) { return sheet && sheet.href ? String(sheet.href) : ''; }
+                );
+                var hasCoreCss = sheetHrefs.some(function(href) {
+                  return href.indexOf('/assets/application.css') !== -1 ||
+                         href.indexOf('/bootstrap.min.css') !== -1 ||
+                         href.indexOf('/bootstrap.rtl.min.css') !== -1;
+                });
+                var linkCount = document.querySelectorAll('link[rel="stylesheet"]').length;
+                return JSON.stringify({
+                  readyState: document.readyState,
+                  hasCoreCss: hasCoreCss,
+                  stylesheetCount: sheetHrefs.length,
+                  linkCount: linkCount,
+                  path: location.pathname
+                });
+              } catch (e) {
+                return JSON.stringify({
+                  readyState: document.readyState,
+                  hasCoreCss: false,
+                  stylesheetCount: 0,
+                  linkCount: 0,
+                  path: location.pathname,
+                  error: String(e)
+                });
+              }
+            })();
+        """.trimIndent()
+
+        webView.post {
+            webView.evaluateJavascript(script) { rawResult ->
+                val decodedJson = decodeJsString(rawResult) ?: return@evaluateJavascript
+                val payload = runCatching { JSONObject(decodedJson) }.getOrNull() ?: return@evaluateJavascript
+                val hasCoreCss = payload.optBoolean("hasCoreCss", false)
+                val readyState = payload.optString("readyState", "")
+                val stylesheetCount = payload.optInt("stylesheetCount", 0)
+                val linkCount = payload.optInt("linkCount", 0)
+                val path = payload.optString("path", location)
+
+                if (hasCoreCss) {
+                    styleRecoveryRetryCount = 0
+                    return@evaluateJavascript
+                }
+
+                // Only self-heal when the DOM is ready and styles were expected but missing.
+                if (readyState == "complete" && linkCount > 0 && styleRecoveryRetryCount < 1) {
+                    styleRecoveryRetryCount++
+                    Log.w(
+                        TAG,
+                        "Detected missing core CSS on $path " +
+                            "(stylesheets=$stylesheetCount links=$linkCount). " +
+                            "Auto-refreshing once to recover stylesheet load."
+                    )
+                    view?.postDelayed({ refresh(true) }, 250)
+                }
+            }
+        }
+    }
+
+    private fun decodeJsString(rawResult: String?): String? {
+        val raw = rawResult?.trim() ?: return null
+        if (raw == "null" || raw.isEmpty()) return null
+        return runCatching {
+            if (raw.length >= 2 && raw.first() == '"' && raw.last() == '"') {
+                JSONObject("{\"v\":$raw}").getString("v")
+            } else {
+                raw
+            }
+        }.getOrNull()
     }
 
     /**
