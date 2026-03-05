@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.util.AttributeSet
 import android.util.Log
+import android.widget.Toast
 import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import androidx.core.content.ContextCompat
@@ -24,6 +25,26 @@ class GroovitationWebView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "GroovitationWebView"
+        internal const val AVATAR_UPLOAD_MAX_BYTES: Long = 20L * 1024L * 1024L
+        private val SUPPORTED_AVATAR_MIME_TYPES = setOf(
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/gif",
+            "image/webp",
+            "image/avif"
+        )
+
+        internal fun isSupportedAvatarMimeType(mimeType: String?): Boolean {
+            if (mimeType.isNullOrBlank()) return false
+            return SUPPORTED_AVATAR_MIME_TYPES.contains(mimeType.lowercase())
+        }
+
+        internal fun isAllowedAvatarPayload(mimeType: String?, sizeBytes: Long): Boolean {
+            if (!isSupportedAvatarMimeType(mimeType)) return false
+            if (sizeBytes < 0L) return true
+            return sizeBytes <= AVATAR_UPLOAD_MAX_BYTES
+        }
     }
 
     init {
@@ -100,7 +121,57 @@ class GroovitationWebView @JvmOverloads constructor(
             filePathCallback: android.webkit.ValueCallback<Array<android.net.Uri>>?,
             fileChooserParams: FileChooserParams?
         ): Boolean {
-            return delegate.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+            if (filePathCallback == null) {
+                return delegate.onShowFileChooser(webView, null, fileChooserParams)
+            }
+
+            val isImageChooser = fileChooserParams
+                ?.acceptTypes
+                ?.any { it.contains("image", ignoreCase = true) } ?: true
+            if (!isImageChooser) {
+                return delegate.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+            }
+
+            val guardedCallback = android.webkit.ValueCallback<Array<android.net.Uri>> { uris ->
+                if (uris.isNullOrEmpty()) {
+                    filePathCallback.onReceiveValue(uris)
+                    return@ValueCallback
+                }
+
+                val acceptedUris = uris.filter { uri ->
+                    val mimeType = runCatching { appContext.contentResolver.getType(uri) }.getOrNull()
+                    val sizeBytes = readContentSize(uri)
+                    val allowed = isAllowedAvatarPayload(mimeType, sizeBytes)
+                    if (!allowed) {
+                        Log.w(
+                            TAG,
+                            "Rejecting avatar upload uri=$uri mime=$mimeType sizeBytes=$sizeBytes"
+                        )
+                    }
+                    allowed
+                }
+
+                if (acceptedUris.isEmpty()) {
+                    Toast.makeText(
+                        appContext,
+                        "Avatar upload supports JPG, PNG, GIF, WEBP, or AVIF up to 20MB.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    filePathCallback.onReceiveValue(null)
+                } else {
+                    filePathCallback.onReceiveValue(acceptedUris.toTypedArray())
+                }
+            }
+
+            return delegate.onShowFileChooser(webView, guardedCallback, fileChooserParams)
+        }
+
+        private fun readContentSize(uri: android.net.Uri): Long {
+            return runCatching {
+                appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                    afd.length
+                } ?: -1L
+            }.getOrElse { -1L }
         }
 
         override fun onJsAlert(
