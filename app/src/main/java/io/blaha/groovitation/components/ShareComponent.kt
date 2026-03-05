@@ -17,6 +17,25 @@ class ShareComponent(
 
     companion object {
         private const val TAG = "ShareComponent"
+
+        internal fun buildSharePayload(data: ShareData?): SharePayload {
+            val title = data?.title?.trim().orEmpty()
+            val text = data?.text?.ifBlank { null } ?: data?.message?.ifBlank { null } ?: ""
+            val url = data?.url?.ifBlank { null } ?: data?.link?.ifBlank { null } ?: ""
+
+            val body = buildString {
+                if (text.isNotEmpty()) append(text)
+                if (url.isNotEmpty()) {
+                    if (isNotEmpty()) append("\n\n")
+                    append(url)
+                }
+            }.ifEmpty { title }
+
+            return SharePayload(
+                title = title,
+                body = body
+            )
+        }
     }
 
     private val fragment: Fragment
@@ -38,20 +57,9 @@ class ShareComponent(
             return
         }
 
-        val data = message.data<ShareData>()
-        val title = data?.title ?: ""
-        val text = data?.text ?: ""
-        val url = data?.url ?: ""
-
-        val shareText = buildString {
-            if (text.isNotEmpty()) {
-                append(text)
-            }
-            if (url.isNotEmpty()) {
-                if (isNotEmpty()) append("\n\n")
-                append(url)
-            }
-        }
+        val payload = buildSharePayload(message.data())
+        val title = payload.title
+        val shareText = payload.body
 
         if (shareText.isEmpty() && title.isEmpty()) {
             replyTo("share", ShareReply(success = false, error = "Nothing to share"))
@@ -86,7 +94,14 @@ class ShareComponent(
     data class ShareData(
         @SerialName("title") val title: String? = null,
         @SerialName("text") val text: String? = null,
-        @SerialName("url") val url: String? = null
+        @SerialName("url") val url: String? = null,
+        @SerialName("message") val message: String? = null,
+        @SerialName("link") val link: String? = null
+    )
+
+    data class SharePayload(
+        val title: String,
+        val body: String
     )
 
     @Serializable
