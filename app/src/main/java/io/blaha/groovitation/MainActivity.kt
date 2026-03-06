@@ -176,6 +176,7 @@ class MainActivity : HotwireActivity() {
 
     private val bottomNavListener =
         NavigationBarView.OnItemSelectedListener { item ->
+            val previousItemId = bottomNavigation.selectedItemId
             val path = when (item.itemId) {
                 R.id.nav_home -> "/"
                 R.id.nav_map -> "/map"
@@ -187,6 +188,10 @@ class MainActivity : HotwireActivity() {
 
             val url = "${BuildConfig.BASE_URL}$path"
             Log.d(TAG, "Bottom navigation: navigating to $url")
+
+            if (previousItemId == R.id.nav_map && item.itemId != R.id.nav_map) {
+                activeWebFragment?.flushMapVisibilityState()
+            }
 
             // Navigate in the current navigator
             delegate.currentNavigator?.route(url)
