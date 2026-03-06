@@ -62,6 +62,7 @@ class MainActivity : HotwireActivity() {
     private var activeWebFragment: GroovitationWebFragment? = null
     private lateinit var foregroundLocationManager: io.blaha.groovitation.services.ForegroundLocationManager
     private lateinit var modalAwareBackCallback: OnBackPressedCallback
+    private var lastBottomNavPathForTest: String? = null
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -178,13 +179,14 @@ class MainActivity : HotwireActivity() {
         NavigationBarView.OnItemSelectedListener { item ->
             val previousItemId = bottomNavigation.selectedItemId
             val path = when (item.itemId) {
-                R.id.nav_home -> "/"
+                R.id.nav_home -> "/plan"
                 R.id.nav_map -> "/map"
                 R.id.nav_interests -> "/interests"
                 R.id.nav_friends -> "/friends"
                 R.id.nav_account -> "/users/edit"
                 else -> return@OnItemSelectedListener false
             }
+            lastBottomNavPathForTest = path
 
             val url = "${BuildConfig.BASE_URL}$path"
             Log.d(TAG, "Bottom navigation: navigating to $url")
@@ -300,6 +302,7 @@ class MainActivity : HotwireActivity() {
 
     private fun navItemIdForPath(path: String): Int? {
         return when {
+            path.startsWith("/plan") -> R.id.nav_home
             path.startsWith("/map") -> R.id.nav_map
             path.startsWith("/interests") -> R.id.nav_interests
             path.startsWith("/friends") -> R.id.nav_friends
@@ -308,6 +311,8 @@ class MainActivity : HotwireActivity() {
             else -> null
         }
     }
+
+    internal fun latestBottomNavPathForTest(): String? = lastBottomNavPathForTest
 
     private fun requestNotificationPermission(fromWeb: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

@@ -3,6 +3,7 @@ package io.blaha.groovitation
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,5 +29,22 @@ class MainActivityLaunchInstrumentedTest {
             "Instrumentation should be available for emulator smoke run",
             InstrumentationRegistry.getInstrumentation()
         )
+    }
+
+    @Test
+    fun eventsTabRoutesToEventsListPath() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val bottomNav = activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottom_navigation)
+                bottomNav.selectedItemId = R.id.nav_map
+                bottomNav.selectedItemId = R.id.nav_home
+
+                assertEquals(
+                    "Events tab must route to events list path, not map",
+                    "/plan",
+                    activity.latestBottomNavPathForTest()
+                )
+            }
+        }
     }
 }
