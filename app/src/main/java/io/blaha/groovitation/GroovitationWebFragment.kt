@@ -44,12 +44,14 @@ class GroovitationWebFragment : HotwireWebFragment() {
     override fun onColdBootPageCompleted(location: String) {
         super.onColdBootPageCompleted(location)
         hasSuccessfulVisit = true
+        installNativeAppBridgeShim()
         verifyStylesheetLoadAndRecover(location)
     }
 
     override fun onVisitCompleted(location: String, completedOffline: Boolean) {
         super.onVisitCompleted(location, completedOffline)
         hasSuccessfulVisit = true
+        installNativeAppBridgeShim()
         verifyStylesheetLoadAndRecover(location)
     }
 
@@ -146,6 +148,44 @@ class GroovitationWebFragment : HotwireWebFragment() {
                     view?.postDelayed({ refresh(true) }, 250)
                 }
             }
+        }
+    }
+
+    private fun installNativeAppBridgeShim() {
+        val webView = attachedWebView ?: return
+        val script = """
+            (function() {
+              try {
+                if (window.NativeApp && typeof window.NativeApp.postMessage === 'function') return;
+                window.NativeApp = window.NativeApp || {};
+                window.NativeApp.postMessage = function(rawMessage) {
+                  try {
+                    if (!window.nativeBridge || typeof window.nativeBridge.receive !== 'function') return false;
+                    var message = (typeof rawMessage === 'string') ? JSON.parse(rawMessage) : (rawMessage || {});
+                    if (!message.id) {
+                      var component = String(message.component || 'bridge');
+                      var event = String(message.event || 'event');
+                      message.id = [component, event, Date.now().toString(36), Math.random().toString(36).slice(2, 10)].join('-');
+                    }
+                    if (typeof window.nativeBridge.supportsComponent === 'function' &&
+                        !window.nativeBridge.supportsComponent(message.component)) {
+                      return false;
+                    }
+                    window.nativeBridge.receive(message);
+                    return true;
+                  } catch (err) {
+                    console.error('NativeApp shim postMessage failed', err);
+                    return false;
+                  }
+                };
+              } catch (err) {
+                console.error('NativeApp shim install failed', err);
+              }
+            })();
+        """.trimIndent()
+
+        webView.post {
+            webView.evaluateJavascript(script, null)
         }
     }
 
