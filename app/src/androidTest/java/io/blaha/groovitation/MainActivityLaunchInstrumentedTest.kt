@@ -40,8 +40,8 @@ class MainActivityLaunchInstrumentedTest {
                 bottomNav.selectedItemId = R.id.nav_home
 
                 assertEquals(
-                    "Events tab must route to events list path, not map",
-                    "/plan",
+                    "Events tab must route to landing events list path, not plan or map",
+                    "/",
                     activity.latestBottomNavPathForTest()
                 )
             }

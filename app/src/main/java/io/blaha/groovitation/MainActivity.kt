@@ -179,7 +179,7 @@ class MainActivity : HotwireActivity() {
         NavigationBarView.OnItemSelectedListener { item ->
             val previousItemId = bottomNavigation.selectedItemId
             val path = when (item.itemId) {
-                R.id.nav_home -> "/plan"
+                R.id.nav_home -> "/"
                 R.id.nav_map -> "/map"
                 R.id.nav_interests -> "/interests"
                 R.id.nav_friends -> "/friends"
