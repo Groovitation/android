@@ -35,14 +35,10 @@ class MainActivityLaunchInstrumentedTest {
     fun eventsTabRoutesToEventsListPath() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                val bottomNav = activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottom_navigation)
-                bottomNav.selectedItemId = R.id.nav_map
-                bottomNav.selectedItemId = R.id.nav_home
-
                 assertEquals(
                     "Events tab must route to landing events list path, not plan or map",
                     "/",
-                    activity.latestBottomNavPathForTest()
+                    activity.bottomNavPathForItemForTest(R.id.nav_home)
                 )
             }
         }

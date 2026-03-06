@@ -178,14 +178,7 @@ class MainActivity : HotwireActivity() {
     private val bottomNavListener =
         NavigationBarView.OnItemSelectedListener { item ->
             val previousItemId = bottomNavigation.selectedItemId
-            val path = when (item.itemId) {
-                R.id.nav_home -> "/"
-                R.id.nav_map -> "/map"
-                R.id.nav_interests -> "/interests"
-                R.id.nav_friends -> "/friends"
-                R.id.nav_account -> "/users/edit"
-                else -> return@OnItemSelectedListener false
-            }
+            val path = bottomNavPathForItem(item.itemId) ?: return@OnItemSelectedListener false
             lastBottomNavPathForTest = path
 
             val url = "${BuildConfig.BASE_URL}$path"
@@ -313,6 +306,17 @@ class MainActivity : HotwireActivity() {
     }
 
     internal fun latestBottomNavPathForTest(): String? = lastBottomNavPathForTest
+
+    internal fun bottomNavPathForItemForTest(itemId: Int): String? = bottomNavPathForItem(itemId)
+
+    private fun bottomNavPathForItem(itemId: Int): String? = when (itemId) {
+        R.id.nav_home -> "/"
+        R.id.nav_map -> "/map"
+        R.id.nav_interests -> "/interests"
+        R.id.nav_friends -> "/friends"
+        R.id.nav_account -> "/users/edit"
+        else -> null
+    }
 
     private fun requestNotificationPermission(fromWeb: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
