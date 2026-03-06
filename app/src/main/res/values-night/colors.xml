@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Status bar -->
+    <color name="status_bar_color">#111827</color>
+
+    <!-- Navigation bar (system) -->
+    <color name="navigation_bar_color">#1F2937</color>
+
+    <!-- Background used by bottom nav and window background -->
+    <color name="background_light">#1F2937</color>
+
+    <!-- Text colors for dark surfaces -->
+    <color name="text_primary">#F9FAFB</color>
+    <color name="text_secondary">#9CA3AF</color>
+</resources>
