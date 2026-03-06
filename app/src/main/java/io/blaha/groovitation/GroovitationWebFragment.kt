@@ -532,6 +532,26 @@ class GroovitationWebFragment : HotwireWebFragment() {
         }
     }
 
+    fun flushMapVisibilityState() {
+        val webView = attachedWebView ?: return
+        val script = """
+            (function() {
+              try {
+                if (typeof window.saveHiddenInterests === 'function') {
+                  window.saveHiddenInterests();
+                  return true;
+                }
+                return false;
+              } catch (e) {
+                return false;
+              }
+            })();
+        """.trimIndent()
+        webView.post {
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
     /**
      * Dispatch a native foreground GPS fix to the WebView for map updates.
      * Uses the same 'groovitation:location' event so existing map listeners work,
