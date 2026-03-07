@@ -84,6 +84,7 @@ class MainActivity : HotwireActivity() {
     private lateinit var foregroundLocationManager: io.blaha.groovitation.services.ForegroundLocationManager
     private lateinit var modalAwareBackCallback: OnBackPressedCallback
     private var lastBottomNavPathForTest: String? = null
+    private var lastNavUsedClearAll: Boolean = false
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -210,8 +211,17 @@ class MainActivity : HotwireActivity() {
                 activeWebFragment?.flushMapVisibilityState()
             }
 
-            // Navigate in the current navigator
-            delegate.currentNavigator?.route(url)
+            // Events tab is the start location (/). Using route() causes a
+            // Hotwire POP that shows stale WebView content from the previous
+            // tab instead of performing a fresh Turbo visit. clearAll() resets
+            // the back stack and forces a fresh visit to the start location.
+            if (item.itemId == R.id.nav_home) {
+                lastNavUsedClearAll = true
+                delegate.currentNavigator?.clearAll()
+            } else {
+                lastNavUsedClearAll = false
+                delegate.currentNavigator?.route(url)
+            }
             true
         }
 
@@ -328,6 +338,8 @@ class MainActivity : HotwireActivity() {
     }
 
     internal fun latestBottomNavPathForTest(): String? = lastBottomNavPathForTest
+
+    internal fun lastNavUsedClearAllForTest(): Boolean = lastNavUsedClearAll
 
     internal fun bottomNavPathForItemForTest(itemId: Int): String? = bottomNavPathForItem(itemId)
 
