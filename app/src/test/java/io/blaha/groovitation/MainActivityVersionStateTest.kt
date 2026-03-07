@@ -1,13 +1,16 @@
 package io.blaha.groovitation
 
 import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 
+@RunWith(RobolectricTestRunner::class)
 class MainActivityVersionStateTest {
 
     private lateinit var prefsName: String
@@ -70,6 +73,8 @@ class MainActivityVersionStateTest {
         assertEquals(50, prefs.getInt("last_seen_app_version_code", -1))
     }
 
-    private fun testPrefs() = ApplicationProvider.getApplicationContext<Context>()
-        .getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+    private fun testPrefs() = RuntimeEnvironment.getApplication().getSharedPreferences(
+        prefsName,
+        Context.MODE_PRIVATE
+    )
 }
