@@ -349,6 +349,33 @@ class GroovitationWebFragment : HotwireWebFragment() {
         }
 
         @JavascriptInterface
+        fun share(title: String, url: String, text: String) {
+            Log.d(TAG, "share called from JavaScript: title=$title url=$url")
+            activity?.runOnUiThread {
+                try {
+                    val body = buildString {
+                        if (text.isNotBlank()) append(text)
+                        if (url.isNotBlank()) {
+                            if (isNotEmpty()) append("\n\n")
+                            append(url)
+                        }
+                    }.ifEmpty { title }
+
+                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        if (title.isNotBlank()) putExtra(Intent.EXTRA_SUBJECT, title)
+                        if (body.isNotBlank()) putExtra(Intent.EXTRA_TEXT, body)
+                    }
+                    activity?.startActivity(
+                        Intent.createChooser(sendIntent, title.ifEmpty { "Share" })
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error opening share sheet", e)
+                }
+            }
+        }
+
+        @JavascriptInterface
         fun openInBrowser(url: String) {
             Log.d(TAG, "openInBrowser: $url")
             activity?.let { act ->
