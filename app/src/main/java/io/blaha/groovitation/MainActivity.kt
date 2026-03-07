@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -47,9 +48,29 @@ class MainActivity : HotwireActivity() {
         private const val KEY_FIRST_LAUNCH = "first_launch_complete"
         private const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val KEY_UPDATE_PROMPT_SHOWN_VERSION = "update_prompt_shown_version"
+        private const val KEY_LAST_SEEN_APP_VERSION_CODE = "last_seen_app_version_code"
         private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
         private const val WELCOME_NOTIFICATION_ID = 1001
+
+        internal fun reconcileNotificationPermissionStateForVersion(
+            prefs: SharedPreferences,
+            currentVersionCode: Int
+        ): Boolean {
+            val lastSeenVersionCode = prefs.getInt(KEY_LAST_SEEN_APP_VERSION_CODE, -1)
+            val requestedBefore = prefs.getBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, false)
+            val isLegacyUpgrade = lastSeenVersionCode == -1 && requestedBefore
+            val isVersionUpgrade = lastSeenVersionCode != -1 && lastSeenVersionCode != currentVersionCode
+            val shouldResetRequestedState = isLegacyUpgrade || isVersionUpgrade
+
+            val editor = prefs.edit().putInt(KEY_LAST_SEEN_APP_VERSION_CODE, currentVersionCode)
+            if (shouldResetRequestedState) {
+                editor.putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, false)
+            }
+            editor.apply()
+
+            return shouldResetRequestedState
+        }
     }
 
     private lateinit var bottomNavigation: BottomNavigationView
@@ -136,6 +157,7 @@ class MainActivity : HotwireActivity() {
         installModalAwareBackHandler()
 
         Log.d(TAG, "MainActivity onCreate completed, navigatorConfigurations: ${navigatorConfigurations()}")
+        handleAppVersionState()
         requestNotificationPermission()
         handleIntent(intent)
     }
@@ -706,6 +728,9 @@ class MainActivity : HotwireActivity() {
                     val token = task.result
                     Log.d(TAG, "FCM Token: $token")
                     TokenStorage.fcmToken = token
+                    // Token fetch can resolve after person/cookie initialization.
+                    // Attempt registration now to avoid missing this startup window.
+                    registerFcmTokenWithServer()
                 } else {
                     Log.w(TAG, "Failed to get FCM token", task.exception)
                 }
@@ -713,6 +738,21 @@ class MainActivity : HotwireActivity() {
         } catch (e: Exception) {
             // Firebase not configured - this is OK for testing without google-services.json
             Log.w(TAG, "Firebase not available: ${e.message}")
+        }
+    }
+
+    private fun handleAppVersionState() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val resetApplied = reconcileNotificationPermissionStateForVersion(
+            prefs = prefs,
+            currentVersionCode = BuildConfig.VERSION_CODE
+        )
+        if (resetApplied) {
+            Log.i(
+                TAG,
+                "App version changed; reset notification-permission-requested state " +
+                    "so this release can prompt again"
+            )
         }
     }
 }
