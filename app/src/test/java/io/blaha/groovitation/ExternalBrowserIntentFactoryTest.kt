@@ -29,7 +29,9 @@ class ExternalBrowserIntentFactoryTest {
         }
 
         shadowPackageManager.addResolveInfoForIntent(
-            Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.android.chrome"),
+            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addCategory(Intent.CATEGORY_BROWSABLE)
+                .setPackage("com.android.chrome"),
             chromeResolveInfo
         )
 
