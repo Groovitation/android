@@ -8,7 +8,6 @@ import android.util.Log
 import android.view.View
 import android.webkit.HttpAuthHandler
 import android.webkit.JavascriptInterface
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.NotificationManagerCompat
 import dev.hotwire.core.turbo.errors.VisitError
 import dev.hotwire.core.turbo.webview.HotwireWebView
@@ -380,10 +379,8 @@ class GroovitationWebFragment : HotwireWebFragment() {
             Log.d(TAG, "openInBrowser: $url")
             activity?.let { act ->
                 act.runOnUiThread {
-                    val customTabsIntent = CustomTabsIntent.Builder()
-                        .setShowTitle(true)
-                        .build()
-                    customTabsIntent.launchUrl(act, Uri.parse(url))
+                    val intent = ExternalBrowserIntentFactory.build(act, url)
+                    act.startActivity(intent)
                 }
             }
         }
