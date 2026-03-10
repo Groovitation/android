@@ -34,6 +34,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
     private var hasSuccessfulVisit = false
     private var coldBootRetryCount = 0
     private var styleRecoveryRetryCount = 0
+    private var pendingExternalBrowserReturnUrl: String? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -82,6 +83,11 @@ class GroovitationWebFragment : HotwireWebFragment() {
         (activity as? MainActivity)?.unregisterWebFragment(this)
         attachedWebView = null
         styleRecoveryRetryCount = 0
+    }
+
+    override fun onResume() {
+        super.onResume()
+        dispatchPendingExternalBrowserReturn()
     }
 
     private fun verifyStylesheetLoadAndRecover(location: String) {
@@ -186,6 +192,16 @@ class GroovitationWebFragment : HotwireWebFragment() {
         webView.post {
             webView.evaluateJavascript(script, null)
         }
+    }
+
+    private fun dispatchPendingExternalBrowserReturn() {
+        val webView = attachedWebView ?: return
+        val url = pendingExternalBrowserReturnUrl ?: return
+        val script = ExternalBrowserReturnEvent.buildScript(url)
+        webView.post {
+            webView.evaluateJavascript(script, null)
+        }
+        pendingExternalBrowserReturnUrl = null
     }
 
     private fun decodeJsString(rawResult: String?): String? {
@@ -377,6 +393,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         @JavascriptInterface
         fun openInBrowser(url: String) {
             Log.d(TAG, "openInBrowser: $url")
+            pendingExternalBrowserReturnUrl = url
             activity?.let { act ->
                 act.runOnUiThread {
                     val intent = ExternalBrowserIntentFactory.build(act, url)
