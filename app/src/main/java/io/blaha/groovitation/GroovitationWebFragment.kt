@@ -45,6 +45,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         super.onColdBootPageCompleted(location)
         hasSuccessfulVisit = true
         installNativeAppBridgeShim()
+        (activity as? MainActivity)?.syncPermissionStatesToWeb()
         verifyStylesheetLoadAndRecover(location)
     }
 
@@ -52,6 +53,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         super.onVisitCompleted(location, completedOffline)
         hasSuccessfulVisit = true
         installNativeAppBridgeShim()
+        (activity as? MainActivity)?.syncPermissionStatesToWeb()
         verifyStylesheetLoadAndRecover(location)
     }
 
@@ -88,6 +90,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
     override fun onResume() {
         super.onResume()
         dispatchPendingExternalBrowserReturn()
+        (activity as? MainActivity)?.syncPermissionStatesToWeb()
     }
 
     private fun verifyStylesheetLoadAndRecover(location: String) {
@@ -317,6 +320,12 @@ class GroovitationWebFragment : HotwireWebFragment() {
             } else {
                 enabled
             }
+        }
+
+        @JavascriptInterface
+        fun notificationPermissionState(): String {
+            val mainActivity = activity as? MainActivity ?: return "denied"
+            return mainActivity.currentNotificationPermissionState()
         }
 
         @JavascriptInterface
