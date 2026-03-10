@@ -3,6 +3,7 @@ package io.blaha.groovitation
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.charset.StandardCharsets
 
 class GroovitationWebViewAvatarUploadGuardTest {
 
@@ -31,5 +32,17 @@ class GroovitationWebViewAvatarUploadGuardTest {
                 GroovitationWebView.AVATAR_UPLOAD_MAX_BYTES + 1L
             )
         )
+    }
+
+    @Test
+    fun detectsAvatarFormatFromHeaderBytes() {
+        val jpegHeader = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0x00.toByte())
+        assertTrue(GroovitationWebView.sniffAvatarMimeType(jpegHeader) == "image/jpeg")
+    }
+
+    @Test
+    fun rejectsHeicBytesMasqueradingAsJpegMimeType() {
+        val heicHeader = byteArrayOf(0x00, 0x00, 0x00, 0x18) + "ftypheic".toByteArray(StandardCharsets.US_ASCII)
+        assertFalse(GroovitationWebView.isAllowedAvatarPayload("image/jpeg", 1024L, heicHeader))
     }
 }

@@ -10,6 +10,7 @@ import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import androidx.core.content.ContextCompat
 import dev.hotwire.core.turbo.webview.HotwireWebView
+import java.nio.charset.StandardCharsets
 
 /**
  * Custom WebView for Groovitation.
@@ -26,6 +27,7 @@ class GroovitationWebView @JvmOverloads constructor(
     companion object {
         private const val TAG = "GroovitationWebView"
         internal const val AVATAR_UPLOAD_MAX_BYTES: Long = 20L * 1024L * 1024L
+        private const val AVATAR_PROBE_BYTES = 32
         private val SUPPORTED_AVATAR_MIME_TYPES = setOf(
             "image/jpeg",
             "image/jpg",
@@ -40,10 +42,48 @@ class GroovitationWebView @JvmOverloads constructor(
             return SUPPORTED_AVATAR_MIME_TYPES.contains(mimeType.lowercase())
         }
 
-        internal fun isAllowedAvatarPayload(mimeType: String?, sizeBytes: Long): Boolean {
-            if (!isSupportedAvatarMimeType(mimeType)) return false
-            if (sizeBytes < 0L) return true
-            return sizeBytes <= AVATAR_UPLOAD_MAX_BYTES
+        private fun ascii(bytes: ByteArray, start: Int, end: Int): String {
+            return String(bytes.copyOfRange(start, end), StandardCharsets.US_ASCII)
+        }
+
+        internal fun sniffAvatarMimeType(headerBytes: ByteArray?): String? {
+            if (headerBytes == null || headerBytes.isEmpty()) return null
+
+            return when {
+                headerBytes.size >= 3 &&
+                    (headerBytes[0].toInt() and 0xff) == 0xff &&
+                    (headerBytes[1].toInt() and 0xff) == 0xd8 &&
+                    (headerBytes[2].toInt() and 0xff) == 0xff -> "image/jpeg"
+                headerBytes.size >= 8 &&
+                    headerBytes[0] == 0x89.toByte() &&
+                    ascii(headerBytes, 1, 4) == "PNG" &&
+                    headerBytes[4] == 0x0d.toByte() &&
+                    headerBytes[5] == 0x0a.toByte() &&
+                    headerBytes[6] == 0x1a.toByte() &&
+                    headerBytes[7] == 0x0a.toByte() -> "image/png"
+                headerBytes.size >= 6 &&
+                    setOf("GIF87a", "GIF89a").contains(ascii(headerBytes, 0, 6)) -> "image/gif"
+                headerBytes.size >= 12 &&
+                    ascii(headerBytes, 0, 4) == "RIFF" &&
+                    ascii(headerBytes, 8, 12) == "WEBP" -> "image/webp"
+                headerBytes.size >= 12 &&
+                    ascii(headerBytes, 4, 8) == "ftyp" &&
+                    setOf("avif", "avis").contains(ascii(headerBytes, 8, 12)) -> "image/avif"
+                else -> null
+            }
+        }
+
+        internal fun isAllowedAvatarPayload(
+            mimeType: String?,
+            sizeBytes: Long,
+            headerBytes: ByteArray? = null
+        ): Boolean {
+            if (sizeBytes >= 0L && sizeBytes > AVATAR_UPLOAD_MAX_BYTES) return false
+
+            val sniffedMimeType = sniffAvatarMimeType(headerBytes)
+            if (headerBytes != null && headerBytes.isNotEmpty() && sniffedMimeType == null) return false
+
+            return isSupportedAvatarMimeType(sniffedMimeType ?: mimeType)
         }
     }
 
@@ -141,11 +181,12 @@ class GroovitationWebView @JvmOverloads constructor(
                 val acceptedUris = uris.filter { uri ->
                     val mimeType = runCatching { appContext.contentResolver.getType(uri) }.getOrNull()
                     val sizeBytes = readContentSize(uri)
-                    val allowed = isAllowedAvatarPayload(mimeType, sizeBytes)
+                    val headerBytes = readAvatarHeader(uri)
+                    val allowed = isAllowedAvatarPayload(mimeType, sizeBytes, headerBytes)
                     if (!allowed) {
                         Log.w(
                             TAG,
-                            "Rejecting avatar upload uri=$uri mime=$mimeType sizeBytes=$sizeBytes"
+                            "Rejecting avatar upload uri=$uri mime=$mimeType sniffed=${sniffAvatarMimeType(headerBytes)} sizeBytes=$sizeBytes"
                         )
                     }
                     allowed
@@ -172,6 +213,16 @@ class GroovitationWebView @JvmOverloads constructor(
                     afd.length
                 } ?: -1L
             }.getOrElse { -1L }
+        }
+
+        private fun readAvatarHeader(uri: android.net.Uri): ByteArray? {
+            return runCatching {
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
+                    val buffer = ByteArray(AVATAR_PROBE_BYTES)
+                    val read = input.read(buffer)
+                    if (read <= 0) null else buffer.copyOf(read)
+                }
+            }.getOrNull()
         }
 
         override fun onJsAlert(
