@@ -255,6 +255,7 @@ class MainActivity : HotwireActivity() {
     override fun onResume() {
         super.onResume()
         LocationTrackingService.refreshCookie(this)
+        syncPermissionStatesToWeb()
         tryStartBackgroundTracking()
         if (hasLocationPermission()) {
             // Native foreground GPS — posts directly to server, dispatches to WebView for map
@@ -490,6 +491,13 @@ class MainActivity : HotwireActivity() {
     private fun dispatchLocationPermissionState(granted: Boolean) {
         activeWebFragment?.dispatchLocationPermissionState(granted)
     }
+
+    fun syncPermissionStatesToWeb() {
+        dispatchNotificationPermissionState(notificationPermissionState())
+        dispatchLocationPermissionState(hasLocationPermission())
+    }
+
+    fun currentNotificationPermissionState(): String = notificationPermissionState()
 
     private fun notificationPermissionState(): String {
         val enabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
