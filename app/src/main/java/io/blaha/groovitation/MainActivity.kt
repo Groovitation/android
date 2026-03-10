@@ -85,6 +85,12 @@ class MainActivity : HotwireActivity() {
     private lateinit var modalAwareBackCallback: OnBackPressedCallback
     private var lastBottomNavPathForTest: String? = null
     private var lastNavUsedClearAll: Boolean = false
+    private val nativeGoogleSignInCoordinator by lazy {
+        NativeGoogleSignInCoordinator(
+            googleIdTokenProvider = CredentialManagerGoogleIdTokenProvider(this),
+            nativeGoogleAuthApi = BackendNativeGoogleAuthApi(BuildConfig.BASE_URL, httpClient),
+        )
+    }
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -309,6 +315,31 @@ class MainActivity : HotwireActivity() {
                     updateBottomNavForPath(path)
                     delegate.currentNavigator?.route(uri.toString())
                 }
+            }
+        }
+    }
+
+    fun startGoogleCredentialSignIn(
+        serverClientId: String,
+        returnUrl: String,
+        fallbackUrl: String,
+    ) {
+        val cookieHeader = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
+        lifecycleScope.launch(Dispatchers.Main) {
+            when (
+                val action = nativeGoogleSignInCoordinator.signIn(
+                    NativeGoogleSignInRequest(
+                        serverClientId = serverClientId,
+                        returnUrl = returnUrl,
+                        fallbackUrl = fallbackUrl,
+                    ),
+                    cookieHeader = cookieHeader,
+                )
+            ) {
+                is NativeGoogleSignInAction.Navigate -> delegate.currentNavigator?.route(action.url)
+                is NativeGoogleSignInAction.OpenBrowser -> startActivity(
+                    ExternalBrowserIntentFactory.build(this@MainActivity, action.url),
+                )
             }
         }
     }
