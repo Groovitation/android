@@ -28,6 +28,113 @@ class GroovitationWebFragment : HotwireWebFragment() {
         private const val AUTH_PASSWORD = "aldoofra"
         private const val NOTIFICATION_PERMISSION_EVENT = "groovitation:notification-permission"
         private const val LOCATION_PERMISSION_EVENT = "groovitation:location-permission"
+
+        internal fun buildCloseTopWebModalScript(): String = """
+            (function() {
+              function isVisible(modal) {
+                if (!modal) return false;
+                var style = window.getComputedStyle ? window.getComputedStyle(modal) : null;
+                if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+                return modal.getAttribute('aria-hidden') !== 'true';
+              }
+
+              function modalStackWeight(modal) {
+                if (!modal) return -1;
+                var style = window.getComputedStyle ? window.getComputedStyle(modal) : null;
+                var zIndex = style ? parseInt(style.zIndex || '0', 10) : 0;
+                if (isNaN(zIndex)) zIndex = 0;
+                return zIndex;
+              }
+
+              function closeWithClick(modal) {
+                if (!modal) return false;
+                var closeButton = modal.querySelector(
+                  '[data-bs-dismiss="modal"], [data-event-modal-close], [data-planned-modal-close], .btn-close, .map-site-modal__backdrop'
+                );
+                if (closeButton) {
+                  closeButton.click();
+                  return true;
+                }
+                return false;
+              }
+
+              function closeMapSiteModal(modal) {
+                if (!modal) return false;
+                if (closeWithClick(modal)) return true;
+                modal.classList.remove('is-open');
+                modal.setAttribute('aria-hidden', 'true');
+                document.body.classList.remove('map-site-modal-open');
+                return true;
+              }
+
+              function closeBootstrapModal(modal) {
+                if (!modal) return false;
+                if (window.bootstrap && window.bootstrap.Modal) {
+                  var instance = window.bootstrap.Modal.getInstance(modal) || new window.bootstrap.Modal(modal);
+                  instance.hide();
+                  return true;
+                }
+                if (closeWithClick(modal)) return true;
+                modal.classList.remove('show');
+                modal.setAttribute('aria-hidden', 'true');
+                document.body.classList.remove('modal-open');
+                return true;
+              }
+
+              function pickTopModal(modals) {
+                return modals
+                  .filter(isVisible)
+                  .sort(function(left, right) {
+                    var zDiff = modalStackWeight(right) - modalStackWeight(left);
+                    if (zDiff !== 0) return zDiff;
+                    if (left === right) return 0;
+                    var relation = left.compareDocumentPosition(right);
+                    if (relation & Node.DOCUMENT_POSITION_FOLLOWING) return 1;
+                    if (relation & Node.DOCUMENT_POSITION_PRECEDING) return -1;
+                    return 0;
+                  })[0] || null;
+              }
+
+              var helpers = window.GroovitationModals;
+              var phoneModal = document.getElementById('phone-entry-modal');
+              if (phoneModal && phoneModal.classList.contains('is-open') && isVisible(phoneModal)) {
+                if (helpers && typeof helpers.closePhoneEntryModal === 'function') {
+                  helpers.closePhoneEntryModal();
+                } else {
+                  closeMapSiteModal(phoneModal);
+                }
+                return true;
+              }
+
+              var groupChatModal = document.getElementById('group-chat-modal');
+              if (groupChatModal && groupChatModal.classList.contains('is-open') && isVisible(groupChatModal)) {
+                if (helpers && typeof helpers.closeGroupChatModal === 'function') {
+                  helpers.closeGroupChatModal();
+                } else {
+                  closeMapSiteModal(groupChatModal);
+                }
+                return true;
+              }
+
+              var bootstrapModal = pickTopModal(
+                Array.prototype.slice.call(document.querySelectorAll('.modal.show'))
+              );
+              if (bootstrapModal) {
+                return closeBootstrapModal(bootstrapModal);
+              }
+
+              var mapSiteModal = pickTopModal(
+                Array.prototype.slice.call(document.querySelectorAll('.map-site-modal.is-open')).filter(function(modal) {
+                  return modal.id !== 'phone-entry-modal' && modal.id !== 'group-chat-modal';
+                })
+              );
+              if (mapSiteModal) {
+                return closeMapSiteModal(mapSiteModal);
+              }
+
+              return false;
+            })();
+        """.trimIndent()
     }
 
     private var attachedWebView: HotwireWebView? = null
@@ -230,47 +337,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
             return
         }
 
-        val script = """
-            (function() {
-              var selector = '.map-site-modal.is-open, .modal.show';
-              var getOpenModals = function() {
-                return Array.prototype.slice.call(document.querySelectorAll(selector));
-              };
-
-              var before = getOpenModals();
-              if (!before.length) return false;
-
-              // First try existing Escape handlers (supports stacked modal semantics).
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-              var afterEscape = getOpenModals();
-              if (afterEscape.length < before.length) return true;
-
-              // Fallback: close the last opened modal in DOM order.
-              var top = before[before.length - 1];
-              if (!top) return false;
-
-              if (top.classList.contains('show') && window.bootstrap && window.bootstrap.Modal) {
-                var instance = window.bootstrap.Modal.getInstance(top) || new window.bootstrap.Modal(top);
-                instance.hide();
-                return true;
-              }
-
-              var closeButton = top.querySelector(
-                '[data-bs-dismiss="modal"], [data-event-modal-close], [data-planned-modal-close], .btn-close, .map-site-modal__backdrop'
-              );
-              if (closeButton) {
-                closeButton.click();
-                return true;
-              }
-
-              top.classList.remove('is-open');
-              top.classList.remove('show');
-              top.setAttribute('aria-hidden', 'true');
-              document.body.classList.remove('map-site-modal-open');
-              document.body.classList.remove('modal-open');
-              return true;
-            })();
-        """.trimIndent()
+        val script = buildCloseTopWebModalScript()
 
         webView.post {
             webView.evaluateJavascript(script) { raw ->
