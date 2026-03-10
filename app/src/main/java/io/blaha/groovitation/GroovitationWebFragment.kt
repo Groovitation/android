@@ -385,6 +385,15 @@ class GroovitationWebFragment : HotwireWebFragment() {
             }
         }
 
+        @JavascriptInterface
+        fun signInWithGoogle(serverClientId: String, returnUrl: String, fallbackUrl: String) {
+            Log.d(TAG, "signInWithGoogle: returnUrl=$returnUrl fallbackUrl=$fallbackUrl")
+            val mainActivity = activity as? MainActivity ?: return
+            activity?.runOnUiThread {
+                mainActivity.startGoogleCredentialSignIn(serverClientId, returnUrl, fallbackUrl)
+            }
+        }
+
         /**
          * Request fresh GPS location. The result will be dispatched as a
          * 'groovitation:location' CustomEvent on window with {latitude, longitude, accuracy}.
