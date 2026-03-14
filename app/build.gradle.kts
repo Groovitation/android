@@ -18,16 +18,29 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Hotwire Native configuration
-        buildConfigField("String", "BASE_URL", "\"https://groovitation.blaha.io\"")
+        // Hotwire Native configuration (BASE_URL set by product flavor)
         buildConfigField("String", "USER_AGENT_EXTENSION", "\"Groovitation Android/${versionName} Hotwire Native Android/1.2.0\"")
+    }
+
+    // Product flavors for different server targets
+    flavorDimensions += "server"
+    productFlavors {
+        create("prod") {
+            dimension = "server"
+            // Production server (Cloudflare)
+            buildConfigField("String", "BASE_URL", "\"https://groovitation.blaha.io\"")
+        }
+        create("local") {
+            dimension = "server"
+            // Local server for CI testing (10.0.2.2 = host localhost from emulator)
+            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:3000\"")
+            // No applicationIdSuffix - reuse same google-services.json
+        }
     }
 
     buildTypes {
         debug {
             isDebuggable = true
-            // Use production server
-            buildConfigField("String", "BASE_URL", "\"https://groovitation.blaha.io\"")
         }
         release {
             isMinifyEnabled = true
