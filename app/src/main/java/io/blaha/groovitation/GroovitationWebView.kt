@@ -208,9 +208,37 @@ class GroovitationWebView @JvmOverloads constructor(
         }
 
         private fun readContentSize(uri: android.net.Uri): Long {
-            return runCatching {
+            runCatching {
                 appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
-                    afd.length
+                    val length = afd.length
+                    if (length > 0L) {
+                        return length
+                    }
+                }
+            }
+
+            runCatching {
+                appContext.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    val statSize = pfd.statSize
+                    if (statSize > 0L) {
+                        return statSize
+                    }
+                }
+            }
+
+            return runCatching {
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
+                    val buffer = ByteArray(8 * 1024)
+                    var total = 0L
+                    var read = input.read(buffer)
+                    while (read >= 0) {
+                        total += read
+                        if (total > AVATAR_UPLOAD_MAX_BYTES) {
+                            return AVATAR_UPLOAD_MAX_BYTES + 1
+                        }
+                        read = input.read(buffer)
+                    }
+                    total
                 } ?: -1L
             }.getOrElse { -1L }
         }
