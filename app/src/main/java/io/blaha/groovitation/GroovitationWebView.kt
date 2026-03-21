@@ -26,7 +26,7 @@ class GroovitationWebView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "GroovitationWebView"
-        internal const val AVATAR_UPLOAD_MAX_BYTES: Long = 20L * 1024L * 1024L
+        internal const val AVATAR_UPLOAD_MAX_BYTES: Long = 40L * 1024L * 1024L
         private const val AVATAR_PROBE_BYTES = 32
         private val SUPPORTED_AVATAR_MIME_TYPES = setOf(
             "image/jpeg",
@@ -195,7 +195,7 @@ class GroovitationWebView @JvmOverloads constructor(
                 if (acceptedUris.isEmpty()) {
                     Toast.makeText(
                         appContext,
-                        "Avatar upload supports JPG, PNG, GIF, WEBP, or AVIF up to 20MB.",
+                        "Avatar upload supports JPG, PNG, GIF, WEBP, or AVIF up to 40MB.",
                         Toast.LENGTH_LONG
                     ).show()
                     filePathCallback.onReceiveValue(null)
