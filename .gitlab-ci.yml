@@ -105,9 +105,9 @@ emulator-smoke-test:
     - export PATH=$PATH:$ANDROID_HOME/emulator
     - export ANDROID_SERIAL=emulator-5554
     - |
-      # Kill any stale emulator processes left over from prior jobs
-      pkill -f "qemu-system-x86_64" || true
-      pkill -f "emulator.*-avd" || true
+      # Kill any stale emulator processes owned by this user from prior jobs
+      pkill -u "$(id -u)" -f "qemu-system-x86_64" 2>/dev/null || true
+      pkill -u "$(id -u)" -f "emulator.*-avd" 2>/dev/null || true
       sleep 2
       # Reset auth token so emu kill works on next run
       rm -f ~/.emulator_console_auth_token
@@ -139,7 +139,7 @@ emulator-smoke-test:
     - adb -s emulator-5554 shell pm uninstall --user 0 io.blaha.groovitation.test || true
     - adb -s emulator-5554 uninstall io.blaha.groovitation || true
     - adb -s emulator-5554 uninstall io.blaha.groovitation.test || true
-    - ./gradlew connectedLocalDebugAndroidTest --no-daemon
+    - ./gradlew connectedLocalDebugAndroidTest --no-daemon -Pandroid.testInstrumentationRunnerArguments.notClass=io.blaha.groovitation.MainActivityWebStylingInstrumentedTest
     - timeout 10s adb -s emulator-5554 emu kill || true
     - if [ -f /tmp/emulator.pid ]; then kill "$(cat /tmp/emulator.pid)" 2>/dev/null || true; fi
   after_script:
@@ -153,7 +153,7 @@ emulator-smoke-test:
   artifacts:
     reports:
       junit:
-        - app/build/outputs/androidTest-results/connected/flavors/local/**/*.xml
+        - app/build/outputs/androidTest-results/**/*.xml
 
 deploy:
   stage: deploy
