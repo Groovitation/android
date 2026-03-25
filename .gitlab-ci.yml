@@ -72,29 +72,29 @@ build:
   <<: *android_setup
   stage: build
   script:
-    - ./gradlew assembleDebug --no-daemon
+    - ./gradlew assembleProdDebug --no-daemon
   artifacts:
     paths:
-      - app/build/outputs/apk/debug/app-debug.apk
+      - app/build/outputs/apk/prod/debug/app-prod-debug.apk
     expire_in: 1 week
 
 test:
   <<: *android_setup
   stage: test
   script:
-    - ./gradlew test --no-daemon
+    - ./gradlew testProdDebugUnitTest --no-daemon
   artifacts:
     reports:
-      junit: app/build/test-results/testDebugUnitTest/*.xml
+      junit: app/build/test-results/testProdDebugUnitTest/*.xml
 
 lint:
   <<: *android_setup
   stage: test
   script:
-    - ./gradlew lint --no-daemon
+    - ./gradlew lintProdDebug --no-daemon
   artifacts:
     paths:
-      - app/build/reports/lint-results-debug.html
+      - app/build/reports/lint-results-prodDebug.html
     expire_in: 1 week
   allow_failure: true
 
@@ -136,7 +136,7 @@ emulator-smoke-test:
     - adb -s emulator-5554 shell pm uninstall --user 0 io.blaha.groovitation.test || true
     - adb -s emulator-5554 uninstall io.blaha.groovitation || true
     - adb -s emulator-5554 uninstall io.blaha.groovitation.test || true
-    - ./gradlew connectedDebugAndroidTest --no-daemon
+    - ./gradlew connectedLocalDebugAndroidTest --no-daemon
     - timeout 10s adb -s emulator-5554 emu kill || true
     - if [ -f /tmp/emulator.pid ]; then kill "$(cat /tmp/emulator.pid)" 2>/dev/null || true; fi
   after_script:
@@ -147,7 +147,7 @@ emulator-smoke-test:
   artifacts:
     reports:
       junit:
-        - app/build/outputs/androidTest-results/connected/**/*.xml
+        - app/build/outputs/androidTest-results/connected/flavors/local/**/*.xml
 
 deploy:
   stage: deploy
@@ -166,8 +166,8 @@ deploy:
       set -a
       source version.env
       set +a
-      cp app/build/outputs/apk/debug/app-debug.apk "${APK_NAME}"
-      cp app/build/outputs/apk/debug/app-debug.apk groovitation.apk
+      cp app/build/outputs/apk/prod/debug/app-prod-debug.apk "${APK_NAME}"
+      cp app/build/outputs/apk/prod/debug/app-prod-debug.apk groovitation.apk
       rsync -avz "${APK_NAME}" groovitation.apk version.json ben@${DEPLOY_HOST}:/media/nvme/docker_volumes/groovitation-android/
   only:
     - main
