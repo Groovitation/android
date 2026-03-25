@@ -104,12 +104,15 @@ emulator-smoke-test:
   script:
     - export PATH=$PATH:$ANDROID_HOME/emulator
     - export ANDROID_SERIAL=emulator-5554
+    - |
+      # Kill any stale emulator processes left over from prior jobs
+      pkill -f "qemu-system-x86_64" || true
+      pkill -f "emulator.*-avd" || true
+      sleep 2
+      # Reset auth token so emu kill works on next run
+      rm -f ~/.emulator_console_auth_token
     - adb kill-server || true
     - adb start-server
-    - |
-      for serial in $(adb devices | awk '/^emulator-[0-9]+[[:space:]]+device$/{print $1}'); do
-        adb -s "$serial" emu kill || true
-      done
     - sdkmanager "emulator" "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" > /dev/null
     - echo "no" | avdmanager create avd -n ci-api${ANDROID_COMPILE_SDK} -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
     - |
@@ -140,10 +143,13 @@ emulator-smoke-test:
     - timeout 10s adb -s emulator-5554 emu kill || true
     - if [ -f /tmp/emulator.pid ]; then kill "$(cat /tmp/emulator.pid)" 2>/dev/null || true; fi
   after_script:
-    - timeout 10s adb -s emulator-5554 emu kill || true
-    - pkill -f "emulator.*-avd ci-api${ANDROID_COMPILE_SDK}" || true
-    - pkill -f "qemu-system-x86_64.*ci-api${ANDROID_COMPILE_SDK}" || true
-    - adb kill-server || true
+    - export ANDROID_HOME="${PWD}/android-sdk"
+    - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
+    - adb -s emulator-5554 emu kill 2>/dev/null || true
+    - pkill -f "qemu-system-x86_64" || true
+    - pkill -f "emulator.*-avd" || true
+    - if [ -f /tmp/emulator.pid ]; then kill "$(cat /tmp/emulator.pid)" 2>/dev/null || true; fi
+    - adb kill-server 2>/dev/null || true
   artifacts:
     reports:
       junit:

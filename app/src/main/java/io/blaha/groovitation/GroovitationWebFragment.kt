@@ -174,7 +174,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         if (!hasSuccessfulVisit && coldBootRetryCount < 2) {
             coldBootRetryCount++
             Log.d(TAG, "Cold boot visit failed ($error), retry #$coldBootRetryCount: $location")
-            view?.postDelayed({ refresh(true) }, 500)
+            view?.postDelayed({ if (isAdded) refresh(true) }, 500)
             return
         }
         super.onVisitErrorReceived(location, error)
@@ -260,7 +260,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
                             "(stylesheets=$stylesheetCount links=$linkCount). " +
                             "Auto-refreshing once to recover stylesheet load."
                     )
-                    view?.postDelayed({ refresh(true) }, 250)
+                    view?.postDelayed({ if (isAdded) refresh(true) }, 250)
                 }
             }
         }
