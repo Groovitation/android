@@ -307,7 +307,7 @@ class MainActivity : HotwireActivity() {
                     val redirect = uri.getQueryParameter("redirect") ?: "/"
                     if (token != null) {
                         Log.d(TAG, "OAuth callback received, authenticating in WebView")
-                        val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=$token&redirect=$redirect"
+                        val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=$token&redirect=$redirect&platform=android"
                         delegate.currentNavigator?.route(authUrl)
                     }
                 } else if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
