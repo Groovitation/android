@@ -85,6 +85,7 @@ class MainActivity : HotwireActivity() {
     private lateinit var modalAwareBackCallback: OnBackPressedCallback
     private var lastBottomNavPathForTest: String? = null
     private var lastNavUsedClearAll: Boolean = false
+    private var lastRoutedUrlForTest: String? = null
     private val nativeGoogleSignInCoordinator by lazy {
         NativeGoogleSignInCoordinator(
             googleIdTokenProvider = CredentialManagerGoogleIdTokenProvider(this),
@@ -226,7 +227,7 @@ class MainActivity : HotwireActivity() {
                 delegate.currentNavigator?.clearAll()
             } else {
                 lastNavUsedClearAll = false
-                delegate.currentNavigator?.route(url)
+                routeUrl(url)
             }
             true
         }
@@ -297,7 +298,7 @@ class MainActivity : HotwireActivity() {
                 Log.d(TAG, "Deep link URL from notification: $url")
                 updateBottomNavForUrl(url)
                 // Navigate the WebView to this URL
-                delegate.currentNavigator?.route(url)
+                routeUrl(url)
             }
 
             it.data?.let { uri ->
@@ -308,13 +309,13 @@ class MainActivity : HotwireActivity() {
                     if (token != null) {
                         Log.d(TAG, "OAuth callback received, authenticating in WebView")
                         val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=$token&redirect=$redirect&platform=android"
-                        delegate.currentNavigator?.route(authUrl)
+                        routeUrl(authUrl)
                     }
                 } else if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
                     updateBottomNavForPath(path)
-                    delegate.currentNavigator?.route(uri.toString())
+                    routeUrl(uri.toString())
                 }
             }
         }
@@ -337,7 +338,7 @@ class MainActivity : HotwireActivity() {
                     cookieHeader = cookieHeader,
                 )
             ) {
-                is NativeGoogleSignInAction.Navigate -> delegate.currentNavigator?.route(action.url)
+                is NativeGoogleSignInAction.Navigate -> routeUrl(action.url)
                 is NativeGoogleSignInAction.OpenBrowser -> startActivity(
                     ExternalBrowserIntentFactory.build(this@MainActivity, action.url),
                 )
@@ -373,7 +374,13 @@ class MainActivity : HotwireActivity() {
 
     internal fun lastNavUsedClearAllForTest(): Boolean = lastNavUsedClearAll
 
+    internal fun lastRoutedUrlForTest(): String? = lastRoutedUrlForTest
+
     internal fun bottomNavPathForItemForTest(itemId: Int): String? = bottomNavPathForItem(itemId)
+
+    internal fun handleIntentForTest(intent: Intent) {
+        handleIntent(intent)
+    }
 
     private fun bottomNavPathForItem(itemId: Int): String? = when (itemId) {
         R.id.nav_home -> "/"
@@ -382,6 +389,11 @@ class MainActivity : HotwireActivity() {
         R.id.nav_friends -> "/friends"
         R.id.nav_account -> "/users/edit"
         else -> null
+    }
+
+    private fun routeUrl(url: String) {
+        lastRoutedUrlForTest = url
+        delegate.currentNavigator?.route(url)
     }
 
     private fun requestNotificationPermission(fromWeb: Boolean = false) {
