@@ -39,14 +39,23 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
-        // Clear stored geofence position so the one-shot worker forces a geofence refresh.
-        // Geofences are lost on reboot (even with NEVER_EXPIRE), so we need re-registration.
+        // Geofences are lost on reboot (even with NEVER_EXPIRE).
+        // Clear interest geofence position so the one-shot worker forces a refresh.
         val prefs = context.getSharedPreferences("location_tracking_prefs", Context.MODE_PRIVATE)
         prefs.edit()
             .remove("last_geofence_lat")
             .remove("last_geofence_lng")
             .remove("last_geofence_refresh_time")
             .apply()
+
+        // Re-register the rolling tracking geofence at the last known position
+        // so the chain resumes immediately without waiting for WorkManager.
+        val trackingLat = prefs.getFloat(GeofenceManager.KEY_TRACKING_LAT, 0f).toDouble()
+        val trackingLng = prefs.getFloat(GeofenceManager.KEY_TRACKING_LNG, 0f).toDouble()
+        if (trackingLat != 0.0 || trackingLng != 0.0) {
+            Log.d(TAG, "Re-registering tracking geofence at $trackingLat, $trackingLng")
+            GeofenceManager(context).registerTrackingGeofence(trackingLat, trackingLng)
+        }
 
         Log.d(TAG, "Restarting location tracking via WorkManager")
         LocationWorker.enqueuePeriodicWork(context)

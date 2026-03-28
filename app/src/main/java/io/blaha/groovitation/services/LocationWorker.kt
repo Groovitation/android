@@ -143,7 +143,12 @@ class LocationWorker(
                 if (location.hasAltitude()) location.altitude else null
             )
 
-            // 3. Refresh geofences if moved significantly or they're stale
+            // 3. Re-register the rolling tracking geofence at current position
+            GeofenceManager(applicationContext).registerTrackingGeofence(
+                location.latitude, location.longitude
+            )
+
+            // 4. Refresh interest geofences if moved significantly or they're stale
             val lastLat = prefs.getFloat(KEY_LAST_GEOFENCE_LAT, 0f).toDouble()
             val lastLng = prefs.getFloat(KEY_LAST_GEOFENCE_LNG, 0f).toDouble()
             val lastRefreshTime = prefs.getLong(KEY_LAST_GEOFENCE_REFRESH_TIME, 0L)
