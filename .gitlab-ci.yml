@@ -117,6 +117,10 @@ emulator-smoke-test:
     - sdkmanager "emulator" "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" > /dev/null
     - echo "no" | avdmanager create avd -n ci-api${ANDROID_COMPILE_SDK} -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
     - |
+      # Clear stale snapshot locks and corrupt snapshot data that prevent emulator boot
+      AVD_DIR="${HOME}/.android/avd/ci-api${ANDROID_COMPILE_SDK}.avd"
+      rm -rf "${AVD_DIR}/snapshots" "${AVD_DIR}/multiinstance.lock" "${AVD_DIR}/hardware-qemu.ini.lock" 2>/dev/null || true
+    - |
       emulator -avd ci-api${ANDROID_COMPILE_SDK} -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect -accel off > /tmp/emulator.log 2>&1 &
       EMULATOR_PID=$!
       echo "Started emulator PID=${EMULATOR_PID}"
