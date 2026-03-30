@@ -27,8 +27,16 @@ import java.util.concurrent.TimeUnit
 /**
  * Handles geofence transition events (enter/exit).
  *
- * On ENTER: posts location to server and shows a contextual notification.
- * On EXIT: posts location update to server (no notification).
+ * Two kinds of geofences fire through here:
+ *
+ * 1. **Tracking geofence** (ID = TRACKING_GEOFENCE_ID): a rolling geofence
+ *    centered on the user's last known position. On EXIT, posts the new
+ *    location and re-registers the tracking geofence at the new position,
+ *    keeping the chain going indefinitely.
+ *
+ * 2. **Interest geofences**: centered on places matching user interests.
+ *    On ENTER, posts location and shows a notification.
+ *    On EXIT, posts location (no notification).
  *
  * Uses goAsync() to keep the process alive while the HTTP POST completes.
  */
@@ -71,10 +79,15 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         // Use goAsync() to extend the receiver's lifetime while the HTTP POST completes
         val pendingResult = goAsync()
 
+        val isTrackingGeofence = triggeringGeofences.any {
+            it.requestId == GeofenceManager.TRACKING_GEOFENCE_ID
+        }
+
         when (transition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
-                // Show notification immediately (no network needed)
+                // Tracking geofence is EXIT-only, so ENTER is always an interest geofence
                 for (geofence in triggeringGeofences) {
+                    if (geofence.requestId == GeofenceManager.TRACKING_GEOFENCE_ID) continue
                     val gfMeta = metadata.optJSONObject(geofence.requestId)
                     val placeName = gfMeta?.optString("placeName", "a place") ?: "a place"
                     val interestName = gfMeta?.optString("interestName", "") ?: ""
@@ -88,7 +101,6 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     showNotification(context, geofence.requestId, placeName, message)
                 }
 
-                // Post location to server
                 if (location != null) {
                     postLocation(context, location.latitude, location.longitude, location.accuracy.toDouble(), pendingResult)
                 } else {
@@ -96,8 +108,12 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 }
             }
             Geofence.GEOFENCE_TRANSITION_EXIT -> {
-                // Post location update on exit (no notification)
                 if (location != null) {
+                    // Re-register the tracking geofence at the new position to keep the chain going
+                    if (isTrackingGeofence) {
+                        Log.d(TAG, "Tracking geofence exited — chaining to ${location.latitude}, ${location.longitude}")
+                        GeofenceManager(context).registerTrackingGeofence(location.latitude, location.longitude)
+                    }
                     postLocation(context, location.latitude, location.longitude, location.accuracy.toDouble(), pendingResult)
                 } else {
                     pendingResult.finish()

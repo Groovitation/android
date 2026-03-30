@@ -178,6 +178,10 @@ class ForegroundLocationManager(private val context: Context) {
                 val response = httpClient.newCall(request).execute()
                 if (response.isSuccessful) {
                     Log.d(TAG, "Foreground GPS posted successfully")
+                    // Update the rolling tracking geofence to current position
+                    GeofenceManager(context).registerTrackingGeofence(
+                        location.latitude, location.longitude
+                    )
                 } else {
                     Log.w(TAG, "Failed to post foreground GPS: ${response.code}")
                 }
