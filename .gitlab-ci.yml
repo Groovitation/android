@@ -108,42 +108,49 @@ lint:
 emulator-smoke-test:
   <<: *android_setup
   stage: test
-  resource_group: android-emulator
+  # Two emulator slots (5556/5558) allow 2 concurrent smoke tests. Core uses port 5554.
   script:
     - export PATH=$PATH:$ANDROID_HOME/emulator
-    - export ANDROID_SERIAL=emulator-5554
-    # Cross-project emulator lock — prevents core and pekko-android jobs from colliding.
-    # flock is held until the main shell exits (after script:); after_script runs unlocked.
+    # Acquire emulator slot: try port 5556, then 5558, then wait for 5556
     - |
-      exec 9>/tmp/android-emulator.lock
-      echo "Acquiring cross-project emulator lock..."
-      flock -w 5400 9
-      echo "Emulator lock acquired"
+      exec 56>/tmp/android-emulator-5556.lock
+      if flock -n 56 2>/dev/null; then
+        export EMU_PORT=5556
+      else
+        exec 58>/tmp/android-emulator-5558.lock
+        if flock -n 58 2>/dev/null; then
+          export EMU_PORT=5558
+        else
+          echo "Both emulator slots busy, waiting for 5556..."
+          flock -w 5400 56
+          export EMU_PORT=5556
+        fi
+      fi
+      export ANDROID_SERIAL="emulator-${EMU_PORT}"
+      export AVD_NAME="ci-api${ANDROID_COMPILE_SDK}-${EMU_PORT}"
+      echo "$EMU_PORT" > /tmp/emu-port-${CI_JOB_ID}
+      echo "Acquired emulator slot: port=${EMU_PORT} serial=${ANDROID_SERIAL} avd=${AVD_NAME}"
+    # Kill stale emulator on our port only (don't touch other slots)
     - |
-      # Kill any stale emulator processes owned by this user from prior jobs
-      pkill -u "$(id -u)" -f "qemu-system-x86_64" 2>/dev/null || true
-      pkill -u "$(id -u)" -f "emulator.*-avd" 2>/dev/null || true
+      adb -s "${ANDROID_SERIAL}" emu kill 2>/dev/null || true
+      pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
       sleep 2
-      # Reset auth token so emu kill works on next run
       rm -f ~/.emulator_console_auth_token
-    - adb kill-server || true
-    - adb start-server
     - sdkmanager "emulator" "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" > /dev/null
-    - echo "no" | avdmanager create avd -n ci-api${ANDROID_COMPILE_SDK} -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
+    - echo "no" | avdmanager create avd -n "${AVD_NAME}" -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
     - |
-      # Clear stale snapshot locks and corrupt snapshot data that prevent emulator boot
-      AVD_DIR="${HOME}/.android/avd/ci-api${ANDROID_COMPILE_SDK}.avd"
+      AVD_DIR="${HOME}/.android/avd/${AVD_NAME}.avd"
       rm -rf "${AVD_DIR}/snapshots" "${AVD_DIR}/multiinstance.lock" "${AVD_DIR}/hardware-qemu.ini.lock" 2>/dev/null || true
     - |
-      emulator -avd ci-api${ANDROID_COMPILE_SDK} -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect -accel off > /tmp/emulator.log 2>&1 &
+      emulator -avd "${AVD_NAME}" -port "${EMU_PORT}" -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect > /tmp/emulator-${EMU_PORT}.log 2>&1 &
       EMULATOR_PID=$!
-      echo "Started emulator PID=${EMULATOR_PID}"
-      echo "${EMULATOR_PID}" > /tmp/emulator.pid
-    - adb -s emulator-5554 wait-for-device
+      echo "Started emulator PID=${EMULATOR_PID} on port ${EMU_PORT}"
+      echo "${EMULATOR_PID}" > /tmp/emulator-${EMU_PORT}.pid
+    - adb -s "${ANDROID_SERIAL}" wait-for-device
     - |
       boot_timeout=300
       waited=0
-      until [ "$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
+      until [ "$(adb -s "${ANDROID_SERIAL}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
         sleep 5
         waited=$((waited+5))
         if [ "$waited" -ge "$boot_timeout" ]; then
@@ -151,24 +158,33 @@ emulator-smoke-test:
           exit 1
         fi
       done
-    - adb -s emulator-5554 shell settings put global window_animation_scale 0
-    - adb -s emulator-5554 shell settings put global transition_animation_scale 0
-    - adb -s emulator-5554 shell settings put global animator_duration_scale 0
-    - adb -s emulator-5554 shell pm uninstall --user 0 io.blaha.groovitation || true
-    - adb -s emulator-5554 shell pm uninstall --user 0 io.blaha.groovitation.test || true
-    - adb -s emulator-5554 uninstall io.blaha.groovitation || true
-    - adb -s emulator-5554 uninstall io.blaha.groovitation.test || true
+    - adb -s "${ANDROID_SERIAL}" shell settings put global window_animation_scale 0
+    - adb -s "${ANDROID_SERIAL}" shell settings put global transition_animation_scale 0
+    - adb -s "${ANDROID_SERIAL}" shell settings put global animator_duration_scale 0
+    - adb -s "${ANDROID_SERIAL}" shell pm uninstall --user 0 io.blaha.groovitation || true
+    - adb -s "${ANDROID_SERIAL}" shell pm uninstall --user 0 io.blaha.groovitation.test || true
+    - adb -s "${ANDROID_SERIAL}" uninstall io.blaha.groovitation || true
+    - adb -s "${ANDROID_SERIAL}" uninstall io.blaha.groovitation.test || true
     - ./gradlew connectedLocalDebugAndroidTest --no-daemon -Pandroid.testInstrumentationRunnerArguments.notClass=io.blaha.groovitation.MainActivityWebStylingInstrumentedTest
-    - timeout 10s adb -s emulator-5554 emu kill || true
-    - if [ -f /tmp/emulator.pid ]; then kill "$(cat /tmp/emulator.pid)" 2>/dev/null || true; fi
+    - |
+      timeout 10s adb -s "${ANDROID_SERIAL}" emu kill || true
+      if [ -f "/tmp/emulator-${EMU_PORT}.pid" ]; then kill "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true; fi
   after_script:
     - export ANDROID_HOME="${PWD}/android-sdk"
     - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
-    - adb -s emulator-5554 emu kill 2>/dev/null || true
-    - pkill -f "qemu-system-x86_64" || true
-    - pkill -f "emulator.*-avd" || true
-    - if [ -f /tmp/emulator.pid ]; then kill "$(cat /tmp/emulator.pid)" 2>/dev/null || true; fi
-    - adb kill-server 2>/dev/null || true
+    - |
+      EMU_PORT=$(cat /tmp/emu-port-${CI_JOB_ID} 2>/dev/null || echo "")
+      if [ -n "$EMU_PORT" ]; then
+        adb -s "emulator-${EMU_PORT}" emu kill 2>/dev/null || true
+        pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+        [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
+      else
+        # Port file missing — clean up both slots
+        for p in 5556 5558; do
+          adb -s "emulator-${p}" emu kill 2>/dev/null || true
+          pkill -f "emulator.*-port ${p}" 2>/dev/null || true
+        done
+      fi
   artifacts:
     reports:
       junit:
