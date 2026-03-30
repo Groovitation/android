@@ -26,7 +26,7 @@ class GroovitationWebView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "GroovitationWebView"
-        internal const val AVATAR_UPLOAD_MAX_BYTES: Long = 40L * 1024L * 1024L
+        internal const val AVATAR_UPLOAD_MAX_BYTES: Long = 80L * 1024L * 1024L
         private const val AVATAR_PROBE_BYTES = 32
         private val SUPPORTED_AVATAR_MIME_TYPES = setOf(
             "image/jpeg",
