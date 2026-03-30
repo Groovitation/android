@@ -8,6 +8,13 @@ variables:
   ANDROID_BUILD_TOOLS: "35.0.0"
   ANDROID_SDK_TOOLS: "11076708"
 
+# Auto-retry jobs that never start because the shared runner is temporarily unavailable.
+default:
+  retry:
+    max: 2
+    when:
+      - stuck_or_timeout_failure
+
 # Shell executor setup - assumes Java is installed on runner
 # Android SDK is downloaded per-job to android-sdk/ directory
 .android_setup: &android_setup
