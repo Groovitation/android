@@ -111,6 +111,19 @@ emulator-smoke-test:
   # Two emulator slots (5556/5558) allow 2 concurrent smoke tests. Core uses port 5554.
   script:
     - export PATH=$PATH:$ANDROID_HOME/emulator
+    # Ensure emulator child processes are killed on cancel/timeout (prevents zombie "canceling" jobs)
+    - |
+      cleanup_on_signal() {
+        echo "Caught signal, killing emulator..."
+        EMU_PORT=$(cat /tmp/emu-port-${CI_JOB_ID} 2>/dev/null || echo "")
+        if [ -n "$EMU_PORT" ]; then
+          adb -s "emulator-${EMU_PORT}" emu kill 2>/dev/null || true
+          [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill -9 "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
+          pkill -9 -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+        fi
+        exit 1
+      }
+      trap cleanup_on_signal TERM INT
     # Acquire emulator slot: try port 5556, then 5558, then wait for 5556
     - |
       exec 56>/tmp/android-emulator-5556.lock
