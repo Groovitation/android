@@ -101,6 +101,7 @@ lint:
 emulator-smoke-test:
   <<: *android_setup
   stage: test
+  resource_group: android-emulator
   script:
     - export PATH=$PATH:$ANDROID_HOME/emulator
     - export ANDROID_SERIAL=emulator-5554
