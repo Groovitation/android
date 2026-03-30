@@ -105,6 +105,13 @@ emulator-smoke-test:
   script:
     - export PATH=$PATH:$ANDROID_HOME/emulator
     - export ANDROID_SERIAL=emulator-5554
+    # Cross-project emulator lock — prevents core and pekko-android jobs from colliding.
+    # flock is held until the main shell exits (after script:); after_script runs unlocked.
+    - |
+      exec 9>/tmp/android-emulator.lock
+      echo "Acquiring cross-project emulator lock..."
+      flock -w 5400 9
+      echo "Emulator lock acquired"
     - |
       # Kill any stale emulator processes owned by this user from prior jobs
       pkill -u "$(id -u)" -f "qemu-system-x86_64" 2>/dev/null || true
