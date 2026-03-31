@@ -100,7 +100,7 @@ emulator-smoke-test:
   <<: *android_setup
   stage: test
   # Two emulator slots (5556/5558) via flock. Core uses port 5554.
-  # All three share the ci-api35 AVD + ci-ready snapshot from /home/ben/.android/avd/.
+  # All three share the ci-api35 AVD from /home/ben/.android/avd/ (cold boot, no snapshot).
   script:
     # Ensure emulator child processes are killed on cancel/timeout
     - |
@@ -145,12 +145,12 @@ emulator-smoke-test:
       rm -f "${AVD_DIR}/"*.qcow2 2>/dev/null || true
       rm -f "${AVD_DIR}/quickbootChoice.ini" "${AVD_DIR}/emulator-user.ini" "${AVD_DIR}/read-snapshot.txt" 2>/dev/null || true
       rm -rf "${AVD_DIR}/snapshots/default_boot" 2>/dev/null || true
-    # Boot from shared ci-ready snapshot (fast ~15s boot with KVM)
+    # Cold boot emulator (~30s, reliable; snapshot loading is fragile)
     - |
-      echo "Booting emulator from ci-ready snapshot on port ${EMU_PORT}..."
+      echo "Booting emulator (cold boot) on port ${EMU_PORT}..."
       emulator @ci-api35 -port "${EMU_PORT}" \
         -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
-        -snapshot ci-ready -no-snapshot-save > /tmp/emulator-${EMU_PORT}.log 2>&1 &
+        -no-snapshot-load -no-snapshot-save > /tmp/emulator-${EMU_PORT}.log 2>&1 &
       EMULATOR_PID=$!
       echo "Started emulator PID=${EMULATOR_PID} on port ${EMU_PORT}"
       echo "${EMULATOR_PID}" > /tmp/emulator-${EMU_PORT}.pid
