@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import android.util.Log
 import android.webkit.CookieManager
 import androidx.core.app.NotificationCompat
@@ -174,6 +175,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     put("accuracy", accuracy)
                     put("deviceType", "android")
                     put("source", "geofence")
+                    put("deviceId", Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID))
                     put("timestamp", System.currentTimeMillis())
                 }
 

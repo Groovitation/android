@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.webkit.CookieManager
 import androidx.core.content.ContextCompat
@@ -165,6 +166,7 @@ class ForegroundLocationManager(private val context: Context) {
                     if (location.hasAltitude()) put("altitude", location.altitude)
                     put("deviceType", "android")
                     put("source", "foreground-gps")
+                    put("deviceId", Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID))
                     put("timestamp", System.currentTimeMillis())
                 }
 
