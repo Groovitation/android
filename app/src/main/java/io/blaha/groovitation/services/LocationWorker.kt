@@ -3,6 +3,7 @@ package io.blaha.groovitation.services
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.provider.Settings
 import android.util.Log
 import android.webkit.CookieManager
 import androidx.core.content.ContextCompat
@@ -208,6 +209,7 @@ class LocationWorker(
                 altitude?.let { put("altitude", it) }
                 put("deviceType", "android")
                 put("source", "background")
+                put("deviceId", Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID))
                 put("timestamp", System.currentTimeMillis())
             }
 
