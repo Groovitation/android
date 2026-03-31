@@ -15,8 +15,7 @@ default:
     when:
       - stuck_or_timeout_failure
 
-# Shell executor setup - assumes Java is installed on runner
-# Android SDK is downloaded per-job to android-sdk/ directory
+# Shell executor setup — uses shared SDK at /home/ben/Android/Sdk (same as core CI)
 .android_setup: &android_setup
   before_script:
     - |
@@ -62,17 +61,9 @@ default:
         echo "Set GOOGLE_SERVICES_JSON_B64 to a base64-encoded JSON payload to avoid formatting issues."
         exit 1
       fi
-    - export ANDROID_HOME="${PWD}/android-sdk"
-    - mkdir -p $ANDROID_HOME/cmdline-tools
-    - |
-      if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
-        wget -q "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_SDK_TOOLS}_latest.zip" -O cmdline-tools.zip
-        unzip -q cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
-        mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-      fi
-    - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-    - yes | sdkmanager --licenses > /dev/null 2>&1 || true
-    - sdkmanager "platform-tools" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" "build-tools;34.0.0" > /dev/null
+    - export ANDROID_HOME="/home/ben/Android/Sdk"
+    - export ANDROID_AVD_HOME="/home/ben/.android/avd"
+    - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
     - chmod +x ./gradlew
 
 build:
@@ -108,10 +99,10 @@ lint:
 emulator-smoke-test:
   <<: *android_setup
   stage: test
-  # Two emulator slots (5556/5558) allow 2 concurrent smoke tests. Core uses port 5554.
+  # Two emulator slots (5556/5558) via flock. Core uses port 5554.
+  # All three share the ci-api35 AVD + ci-ready snapshot from /home/ben/.android/avd/.
   script:
-    - export PATH=$PATH:$ANDROID_HOME/emulator
-    # Ensure emulator child processes are killed on cancel/timeout (prevents zombie "canceling" jobs)
+    # Ensure emulator child processes are killed on cancel/timeout
     - |
       cleanup_on_signal() {
         echo "Caught signal, killing emulator..."
@@ -140,28 +131,32 @@ emulator-smoke-test:
         fi
       fi
       export ANDROID_SERIAL="emulator-${EMU_PORT}"
-      export AVD_NAME="ci-api${ANDROID_COMPILE_SDK}-${EMU_PORT}"
       echo "$EMU_PORT" > /tmp/emu-port-${CI_JOB_ID}
-      echo "Acquired emulator slot: port=${EMU_PORT} serial=${ANDROID_SERIAL} avd=${AVD_NAME}"
+      echo "Acquired emulator slot: port=${EMU_PORT} serial=${ANDROID_SERIAL}"
     # Kill stale emulator on our port only (don't touch other slots)
     - |
       adb -s "${ANDROID_SERIAL}" emu kill 2>/dev/null || true
       pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
       sleep 2
-      rm -f ~/.emulator_console_auth_token
-    - sdkmanager "emulator" "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" > /dev/null
-    - echo "no" | avdmanager create avd -n "${AVD_NAME}" -k "system-images;android-${ANDROID_COMPILE_SDK};google_apis;x86_64" --device "pixel_5" --force
+    # Clean stale overlay/lock files from the shared AVD
     - |
-      AVD_DIR="${HOME}/.android/avd/${AVD_NAME}.avd"
-      rm -rf "${AVD_DIR}/snapshots" "${AVD_DIR}/multiinstance.lock" "${AVD_DIR}/hardware-qemu.ini.lock" 2>/dev/null || true
+      AVD_DIR="${ANDROID_AVD_HOME}/ci-api35.avd"
+      rm -f "${AVD_DIR}/multiinstance.lock" "${AVD_DIR}/hardware-qemu.ini.lock" 2>/dev/null || true
+      rm -f "${AVD_DIR}/"*.qcow2 2>/dev/null || true
+      rm -f "${AVD_DIR}/quickbootChoice.ini" "${AVD_DIR}/emulator-user.ini" "${AVD_DIR}/read-snapshot.txt" 2>/dev/null || true
+      rm -rf "${AVD_DIR}/snapshots/default_boot" 2>/dev/null || true
+    # Boot from shared ci-ready snapshot (fast ~15s boot with KVM)
     - |
-      emulator -avd "${AVD_NAME}" -port "${EMU_PORT}" -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect > /tmp/emulator-${EMU_PORT}.log 2>&1 &
+      echo "Booting emulator from ci-ready snapshot on port ${EMU_PORT}..."
+      emulator @ci-api35 -port "${EMU_PORT}" \
+        -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
+        -snapshot ci-ready -no-snapshot-save > /tmp/emulator-${EMU_PORT}.log 2>&1 &
       EMULATOR_PID=$!
       echo "Started emulator PID=${EMULATOR_PID} on port ${EMU_PORT}"
       echo "${EMULATOR_PID}" > /tmp/emulator-${EMU_PORT}.pid
     - adb -s "${ANDROID_SERIAL}" wait-for-device
     - |
-      boot_timeout=300
+      boot_timeout=120
       waited=0
       until [ "$(adb -s "${ANDROID_SERIAL}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
         sleep 5
@@ -183,7 +178,7 @@ emulator-smoke-test:
       timeout 10s adb -s "${ANDROID_SERIAL}" emu kill || true
       if [ -f "/tmp/emulator-${EMU_PORT}.pid" ]; then kill "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true; fi
   after_script:
-    - export ANDROID_HOME="${PWD}/android-sdk"
+    - export ANDROID_HOME="/home/ben/Android/Sdk"
     - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
     - |
       EMU_PORT=$(cat /tmp/emu-port-${CI_JOB_ID} 2>/dev/null || echo "")
