@@ -22,13 +22,25 @@ class GroovitationApplication : Application() {
         configureHotwire()
         createNotificationChannels()
         if (BuildConfig.DEBUG) {
-            registerTestPushReceiver()
+            registerDebugReceivers()
         }
     }
 
-    private fun registerTestPushReceiver() {
-        val filter = IntentFilter(TestPushReceiver.ACTION)
-        registerReceiver(TestPushReceiver(), filter, RECEIVER_EXPORTED)
+    private fun registerDebugReceivers() {
+        registerReceiver(
+            TestPushReceiver(),
+            IntentFilter(TestPushReceiver.ACTION),
+            RECEIVER_EXPORTED
+        )
+        registerReceiver(
+            NotificationTestReceiver(),
+            IntentFilter().apply {
+                addAction(NotificationTestReceiver.ACTION_CONFIGURE)
+                addAction(NotificationTestReceiver.ACTION_GET_LAST_TOKEN_REGISTRATION)
+                addAction(NotificationTestReceiver.ACTION_SIMULATE_TOKEN_REFRESH)
+            },
+            RECEIVER_EXPORTED
+        )
     }
 
     private fun configureHotwire() {
