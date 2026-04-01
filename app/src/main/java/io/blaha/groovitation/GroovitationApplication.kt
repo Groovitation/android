@@ -3,6 +3,7 @@ package io.blaha.groovitation
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.IntentFilter
 import android.os.Build
 import dev.hotwire.core.bridge.BridgeComponentFactory
 import dev.hotwire.core.bridge.KotlinXJsonConverter
@@ -20,6 +21,14 @@ class GroovitationApplication : Application() {
         super.onCreate()
         configureHotwire()
         createNotificationChannels()
+        if (BuildConfig.DEBUG) {
+            registerTestPushReceiver()
+        }
+    }
+
+    private fun registerTestPushReceiver() {
+        val filter = IntentFilter(TestPushReceiver.ACTION)
+        registerReceiver(TestPushReceiver(), filter, RECEIVER_EXPORTED)
     }
 
     private fun configureHotwire() {

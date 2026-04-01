@@ -26,6 +26,45 @@ class GroovitationMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "GroovitationFCM"
+
+        /**
+         * Build and display a notification. Extracted so TestPushReceiver can reuse it.
+         */
+        fun showNotification(
+            context: android.content.Context,
+            title: String,
+            body: String,
+            deepLink: String?,
+            channel: String
+        ) {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("url", deepLink ?: "${BuildConfig.BASE_URL}/map")
+            }
+
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                System.currentTimeMillis().toInt(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, channel)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .build()
+
+            val notificationManager = context.getSystemService(NotificationManager::class.java)
+            val notificationId = System.currentTimeMillis().toInt()
+            notificationManager.notify(notificationId, notification)
+
+            Log.d(TAG, "Notification shown: $title")
+        }
     }
 
     private val httpClient = OkHttpClient()
@@ -69,45 +108,13 @@ class GroovitationMessagingService : FirebaseMessagingService() {
         }
     }
 
-    /**
-     * Display a notification to the user.
-     */
     private fun showNotification(
         title: String,
         body: String,
         deepLink: String?,
         channel: String
     ) {
-        // Create intent for notification tap — always navigate to map
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("url", deepLink ?: "${BuildConfig.BASE_URL}/map")
-        }
-
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            System.currentTimeMillis().toInt(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // Build notification
-        val notification = NotificationCompat.Builder(this, channel)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .build()
-
-        // Show notification
-        val notificationManager = getSystemService(NotificationManager::class.java)
-        val notificationId = System.currentTimeMillis().toInt()
-        notificationManager.notify(notificationId, notification)
-
-        Log.d(TAG, "Notification shown: $title")
+        Companion.showNotification(this, title, body, deepLink, channel)
     }
 
     /**
