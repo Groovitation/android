@@ -8,11 +8,7 @@ import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
 
 /**
  * Firebase Cloud Messaging service for Groovitation.
@@ -40,6 +36,39 @@ class GroovitationMessagingService : FirebaseMessagingService() {
             IncomingPushNotificationNotifier(context.applicationContext).show(push)
             Log.d(TAG, "Notification shown: ${push.title}")
         }
+
+        fun handleTokenRefresh(
+            context: Context,
+            token: String,
+            httpClient: OkHttpClient = OkHttpClient(),
+            scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+        ) {
+            Log.d(TAG, "FCM token refreshed: $token")
+            TokenStorage.fcmToken = token
+
+            val cookie = try {
+                CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
+            } catch (e: Exception) {
+                null
+            }
+            if (cookie.isNullOrEmpty()) return
+
+            val registrationUrl = "${BuildConfig.BASE_URL}/api/notifications/tokens"
+            scope.launch {
+                val success = NotificationTokenRegistrar.register(
+                    context = context.applicationContext,
+                    httpClient = httpClient,
+                    url = registrationUrl,
+                    token = token,
+                    cookie = cookie
+                )
+                if (success) {
+                    Log.d(TAG, "Refreshed FCM token registered with server")
+                } else {
+                    Log.w(TAG, "Token registration failed")
+                }
+            }
+        }
     }
 
     private val httpClient = OkHttpClient()
@@ -50,9 +79,12 @@ class GroovitationMessagingService : FirebaseMessagingService() {
      */
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.d(TAG, "FCM token refreshed: $token")
-        TokenStorage.fcmToken = token
-        registerTokenWithServer(token)
+        handleTokenRefresh(
+            context = this,
+            token = token,
+            httpClient = httpClient,
+            scope = scope
+        )
     }
 
     /**
@@ -67,41 +99,4 @@ class GroovitationMessagingService : FirebaseMessagingService() {
         }
     }
 
-    /**
-     * Register refreshed token with the server if we have an active session.
-     */
-    private fun registerTokenWithServer(token: String) {
-        val cookie = try {
-            CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
-        } catch (e: Exception) {
-            null
-        }
-        if (cookie.isNullOrEmpty()) return
-
-        scope.launch {
-            try {
-                val json = JSONObject().apply {
-                    put("token", token)
-                    put("platform", "android")
-                }
-
-                val request = Request.Builder()
-                    .url("${BuildConfig.BASE_URL}/api/notifications/tokens")
-                    .post(json.toString().toRequestBody("application/json".toMediaType()))
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Cookie", cookie)
-                    .build()
-
-                val response = httpClient.newCall(request).execute()
-                if (response.isSuccessful) {
-                    Log.d(TAG, "Refreshed FCM token registered with server")
-                } else {
-                    Log.w(TAG, "Token registration failed: ${response.code}")
-                }
-                response.close()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error registering token with server", e)
-            }
-        }
-    }
 }
