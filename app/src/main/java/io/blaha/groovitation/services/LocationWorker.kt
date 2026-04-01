@@ -46,7 +46,7 @@ class LocationWorker(
     companion object {
         private const val TAG = "LocationWorker"
         private const val WORK_NAME_PERIODIC = "groovitation_location_periodic"
-        private const val WORK_NAME_ONESHOT = "groovitation_location_oneshot"
+        internal const val WORK_NAME_ONESHOT = "groovitation_location_oneshot"
         private const val PREFS_NAME = "location_tracking_prefs"
         private const val KEY_LAST_GEOFENCE_LAT = "last_geofence_lat"
         private const val KEY_LAST_GEOFENCE_LNG = "last_geofence_lng"
@@ -120,13 +120,19 @@ class LocationWorker(
         }
 
         try {
+            val testHooks = LocationWorkerTestHooks.takeIf { it.enabled }
+
             // 1. Get current location
-            val fusedClient = LocationServices.getFusedLocationProviderClient(applicationContext)
-            val cancellationToken = CancellationTokenSource()
-            val location = fusedClient.getCurrentLocation(
-                Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-                cancellationToken.token
-            ).await()
+            val location = if (testHooks != null) {
+                testHooks.overrideLocation
+            } else {
+                val fusedClient = LocationServices.getFusedLocationProviderClient(applicationContext)
+                val cancellationToken = CancellationTokenSource()
+                fusedClient.getCurrentLocation(
+                    Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                    cancellationToken.token
+                ).await()
+            }
 
             if (location == null) {
                 Log.w(TAG, "Could not get location")
@@ -135,44 +141,52 @@ class LocationWorker(
 
             Log.d(TAG, "Location: ${location.latitude}, ${location.longitude} (accuracy: ${location.accuracy}m)")
 
-            // 2. Post location to server
-            postLocationToServer(
-                personUuid,
+            // 2. Build payload and either capture (test) or post (production)
+            val payload = buildLocationPayload(
                 location.latitude,
                 location.longitude,
                 location.accuracy.toDouble(),
                 if (location.hasAltitude()) location.altitude else null
             )
 
-            // 3. Re-register the rolling tracking geofence at current position
-            GeofenceManager(applicationContext).registerTrackingGeofence(
-                location.latitude, location.longitude
-            )
-
-            // 4. Refresh interest geofences if moved significantly or they're stale
-            val lastLat = prefs.getFloat(KEY_LAST_GEOFENCE_LAT, 0f).toDouble()
-            val lastLng = prefs.getFloat(KEY_LAST_GEOFENCE_LNG, 0f).toDouble()
-            val lastRefreshTime = prefs.getLong(KEY_LAST_GEOFENCE_REFRESH_TIME, 0L)
-            val timeSinceRefresh = System.currentTimeMillis() - lastRefreshTime
-            val distance = if (lastLat == 0.0 && lastLng == 0.0) {
-                Double.MAX_VALUE // Force refresh on first run
+            if (testHooks != null) {
+                testHooks.capturedUploads.add(
+                    LocationWorkerTestHooks.CapturedUpload(personUuid, payload)
+                )
             } else {
-                haversineDistance(location.latitude, location.longitude, lastLat, lastLng)
+                postLocationPayload(personUuid, payload)
             }
 
-            if (distance > GEOFENCE_REFRESH_DISTANCE_M || timeSinceRefresh > GEOFENCE_MAX_AGE_MS) {
-                val reason = if (distance > GEOFENCE_REFRESH_DISTANCE_M) "moved ${distance.toInt()}m" else "stale (${timeSinceRefresh / 3600000}h)"
-                Log.d(TAG, "Refreshing geofences: $reason")
-                val geofenceManager = GeofenceManager(applicationContext)
-                geofenceManager.refreshGeofences(location.latitude, location.longitude)
+            // 3-4. Geofence operations (skipped when test hooks suppress them)
+            if (testHooks == null || !testHooks.suppressGeofence) {
+                GeofenceManager(applicationContext).registerTrackingGeofence(
+                    location.latitude, location.longitude
+                )
 
-                prefs.edit()
-                    .putFloat(KEY_LAST_GEOFENCE_LAT, location.latitude.toFloat())
-                    .putFloat(KEY_LAST_GEOFENCE_LNG, location.longitude.toFloat())
-                    .putLong(KEY_LAST_GEOFENCE_REFRESH_TIME, System.currentTimeMillis())
-                    .apply()
-            } else {
-                Log.d(TAG, "Moved only ${distance.toInt()}m, skipping geofence refresh")
+                val lastLat = prefs.getFloat(KEY_LAST_GEOFENCE_LAT, 0f).toDouble()
+                val lastLng = prefs.getFloat(KEY_LAST_GEOFENCE_LNG, 0f).toDouble()
+                val lastRefreshTime = prefs.getLong(KEY_LAST_GEOFENCE_REFRESH_TIME, 0L)
+                val timeSinceRefresh = System.currentTimeMillis() - lastRefreshTime
+                val distance = if (lastLat == 0.0 && lastLng == 0.0) {
+                    Double.MAX_VALUE
+                } else {
+                    haversineDistance(location.latitude, location.longitude, lastLat, lastLng)
+                }
+
+                if (distance > GEOFENCE_REFRESH_DISTANCE_M || timeSinceRefresh > GEOFENCE_MAX_AGE_MS) {
+                    val reason = if (distance > GEOFENCE_REFRESH_DISTANCE_M) "moved ${distance.toInt()}m" else "stale (${timeSinceRefresh / 3600000}h)"
+                    Log.d(TAG, "Refreshing geofences: $reason")
+                    val geofenceManager = GeofenceManager(applicationContext)
+                    geofenceManager.refreshGeofences(location.latitude, location.longitude)
+
+                    prefs.edit()
+                        .putFloat(KEY_LAST_GEOFENCE_LAT, location.latitude.toFloat())
+                        .putFloat(KEY_LAST_GEOFENCE_LNG, location.longitude.toFloat())
+                        .putLong(KEY_LAST_GEOFENCE_REFRESH_TIME, System.currentTimeMillis())
+                        .apply()
+                } else {
+                    Log.d(TAG, "Moved only ${distance.toInt()}m, skipping geofence refresh")
+                }
             }
 
             return Result.success()
@@ -186,12 +200,25 @@ class LocationWorker(
         }
     }
 
-    private suspend fun postLocationToServer(
-        personUuid: String,
+    private fun buildLocationPayload(
         latitude: Double,
         longitude: Double,
         accuracy: Double,
         altitude: Double?
+    ): JSONObject = JSONObject().apply {
+        put("latitude", latitude)
+        put("longitude", longitude)
+        put("accuracy", accuracy)
+        altitude?.let { put("altitude", it) }
+        put("deviceType", "android")
+        put("source", "background")
+        put("deviceId", Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID))
+        put("timestamp", System.currentTimeMillis())
+    }
+
+    private suspend fun postLocationPayload(
+        personUuid: String,
+        json: JSONObject
     ) = withContext(Dispatchers.IO) {
         val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
@@ -202,17 +229,6 @@ class LocationWorker(
             }
 
         try {
-            val json = JSONObject().apply {
-                put("latitude", latitude)
-                put("longitude", longitude)
-                put("accuracy", accuracy)
-                altitude?.let { put("altitude", it) }
-                put("deviceType", "android")
-                put("source", "background")
-                put("deviceId", Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID))
-                put("timestamp", System.currentTimeMillis())
-            }
-
             val request = Request.Builder()
                 .url("${BuildConfig.BASE_URL}/people/$personUuid/location")
                 .post(json.toString().toRequestBody("application/json".toMediaType()))
