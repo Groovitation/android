@@ -5,6 +5,10 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+val localBaseUrl = providers
+    .gradleProperty("groovitationLocalBaseUrl")
+    .orElse("http://10.0.2.2:3000")
+
 android {
     namespace = "io.blaha.groovitation"
     compileSdk = 35
@@ -32,8 +36,9 @@ android {
         }
         create("local") {
             dimension = "server"
-            // Local server for CI testing (10.0.2.2 = host localhost from emulator)
-            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:3000\"")
+            // Local server for CI testing (10.0.2.2 = host localhost from emulator).
+            // CI can override the port to avoid collisions on the shared shell runner.
+            buildConfigField("String", "BASE_URL", "\"${localBaseUrl.get()}\"")
             // No applicationIdSuffix - reuse same google-services.json
         }
     }
@@ -129,4 +134,6 @@ dependencies {
     testImplementation("androidx.test:core:1.5.0")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.test.espresso:espresso-web:3.5.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }
