@@ -52,6 +52,8 @@ class MainActivity : HotwireActivity() {
         private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
         private const val WELCOME_NOTIFICATION_ID = 1001
+        internal const val EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN =
+            "io.blaha.groovitation.extra.DISABLE_STARTUP_PERMISSION_CHAIN"
 
         internal fun reconcileNotificationPermissionStateForVersion(
             prefs: SharedPreferences,
@@ -70,6 +72,10 @@ class MainActivity : HotwireActivity() {
             editor.apply()
 
             return shouldResetRequestedState
+        }
+
+        internal fun shouldAutoRequestPermissions(intent: Intent?): Boolean {
+            return intent?.getBooleanExtra(EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, false) != true
         }
     }
 
@@ -166,7 +172,11 @@ class MainActivity : HotwireActivity() {
 
         Log.d(TAG, "MainActivity onCreate completed, navigatorConfigurations: ${navigatorConfigurations()}")
         handleAppVersionState()
-        requestNotificationPermission()
+        if (shouldAutoRequestPermissions(intent)) {
+            requestNotificationPermission()
+        } else {
+            Log.d(TAG, "Skipping startup permission chain for instrumentation test intent")
+        }
         handleIntent(intent)
     }
 

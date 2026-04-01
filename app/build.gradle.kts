@@ -5,9 +5,16 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-val localBaseUrl = providers
-    .gradleProperty("groovitationLocalBaseUrl")
-    .orElse("http://10.0.2.2:3000")
+val prodBaseUrl = "https://groovitation.blaha.io"
+val defaultLocalBaseUrl = "http://10.0.2.2:3000"
+val configuredLocalBaseUrl = providers.gradleProperty("groovitationLocalBaseUrl")
+    .orElse(providers.environmentVariable("GROOVITATION_LOCAL_BASE_URL"))
+    .orElse(defaultLocalBaseUrl)
+    .get()
+    .trim()
+    .removeSuffix("/")
+
+fun String.asBuildConfigString(): String = "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
     namespace = "io.blaha.groovitation"
@@ -32,13 +39,13 @@ android {
         create("prod") {
             dimension = "server"
             // Production server (Cloudflare)
-            buildConfigField("String", "BASE_URL", "\"https://groovitation.blaha.io\"")
+            buildConfigField("String", "BASE_URL", prodBaseUrl.asBuildConfigString())
         }
         create("local") {
             dimension = "server"
             // Local server for CI testing (10.0.2.2 = host localhost from emulator).
-            // CI can override the port to avoid collisions on the shared shell runner.
-            buildConfigField("String", "BASE_URL", "\"${localBaseUrl.get()}\"")
+            // CI can override this for fixture-backed lanes, including dynamic ports on the shared runner.
+            buildConfigField("String", "BASE_URL", configuredLocalBaseUrl.asBuildConfigString())
             // No applicationIdSuffix - reuse same google-services.json
         }
     }
@@ -133,6 +140,7 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.5.0")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test:rules:1.5.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation("androidx.test.espresso:espresso-web:3.5.1")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")

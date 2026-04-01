@@ -21,14 +21,17 @@ Native Android wrapper for Groovitation using Hotwire Native.
 ### Building
 
 ```bash
-# Debug build
-./gradlew assembleDebug
+# Production APK
+./gradlew assembleProdDebug
 
-# Release build (requires signing config)
-./gradlew assembleRelease
+# Fixture/local APK (default backend: http://10.0.2.2:3000)
+./gradlew assembleLocalDebug
+
+# Fixture/local APK with an explicit backend override
+./gradlew assembleLocalDebug -PgroovitationLocalBaseUrl=http://10.0.2.2:4010
 
 # Install on connected device
-./gradlew installDebug
+./gradlew installLocalDebug
 ```
 
 ### Project Structure
@@ -97,7 +100,23 @@ window.HotwireNative.postMessage('share', 'share', {
 ## Configuration
 
 ### Base URL
-Edit `app/build.gradle.kts` to change the base URL:
+The app ships two server flavors:
+
+```kotlin
+prod  -> https://groovitation.blaha.io
+local -> http://10.0.2.2:3000
+```
+
+The local flavor can be redirected at build time without editing the repo:
+
+```bash
+./gradlew assembleLocalDebug -PgroovitationLocalBaseUrl=http://10.0.2.2:4010
+GROOVITATION_LOCAL_BASE_URL=http://10.0.2.2:4010 ./gradlew assembleLocalDebug
+```
+
+`groovitationLocalBaseUrl` takes precedence over `GROOVITATION_LOCAL_BASE_URL`. Both are normalized to avoid a trailing slash.
+
+Production remains fixed:
 ```kotlin
 buildConfigField("String", "BASE_URL", "\"https://groovitation.blaha.io\"")
 ```
@@ -112,14 +131,14 @@ buildConfigField("String", "USER_AGENT_EXTENSION", "\"Groovitation Android/1.0\"
 
 ```bash
 # Run unit tests
-./gradlew test
+./gradlew testProdDebugUnitTest testLocalDebugUnitTest
 
-# Run instrumented tests
-./gradlew connectedAndroidTest
+# Run the fixture-backed emulator lane
+./gradlew connectedLocalDebugAndroidTest -PgroovitationLocalBaseUrl=http://10.0.2.2:3000
 ```
 
-CI runs unit tests (`./gradlew test`) and an emulator smoke path (`connectedDebugAndroidTest`).
-The `emulator-smoke-test` job boots a headless emulator and executes instrumentation tests on every pipeline.
+CI builds both `prodDebug` and `localDebug`, runs JVM tests for both flavors, and boots a headless emulator for the fixture-backed `connectedLocalDebugAndroidTest` lane.
+Production-only smoke stays in the core repo's post-deploy `smoke-test-android` job.
 
 ## Release
 

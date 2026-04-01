@@ -1,11 +1,8 @@
 package io.blaha.groovitation
 
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.Intent
+import android.content.Context
 import android.util.Log
 import android.webkit.CookieManager
-import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
@@ -27,43 +24,21 @@ class GroovitationMessagingService : FirebaseMessagingService() {
     companion object {
         private const val TAG = "GroovitationFCM"
 
-        /**
-         * Build and display a notification. Extracted so TestPushReceiver can reuse it.
-         */
         fun showNotification(
-            context: android.content.Context,
+            context: Context,
             title: String,
             body: String,
             deepLink: String?,
             channel: String
         ) {
-            val intent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra("url", deepLink ?: "${BuildConfig.BASE_URL}/map")
-            }
-
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                System.currentTimeMillis().toInt(),
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            val push = IncomingPushNotification(
+                title = title.ifBlank { "Groovitation" },
+                body = body,
+                deepLink = deepLink,
+                channel = channel.ifBlank { GroovitationApplication.CHANNEL_DEFAULT }
             )
-
-            val notification = NotificationCompat.Builder(context, channel)
-                .setContentTitle(title)
-                .setContentText(body)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentIntent(pendingIntent)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .build()
-
-            val notificationManager = context.getSystemService(NotificationManager::class.java)
-            val notificationId = System.currentTimeMillis().toInt()
-            notificationManager.notify(notificationId, notification)
-
-            Log.d(TAG, "Notification shown: $title")
+            IncomingPushNotificationNotifier(context.applicationContext).show(push)
+            Log.d(TAG, "Notification shown: ${push.title}")
         }
     }
 
@@ -86,35 +61,10 @@ class GroovitationMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         Log.d(TAG, "Message received from: ${message.from}")
-
-        // Handle notification payload
-        message.notification?.let { notification ->
-            showNotification(
-                title = notification.title ?: "Groovitation",
-                body = notification.body ?: "",
-                deepLink = message.data["url"],
-                channel = message.data["channel"] ?: GroovitationApplication.CHANNEL_DEFAULT
-            )
+        val push = IncomingPushNotification.fromRemoteMessage(message)
+        if (push != null) {
+            showNotification(applicationContext, push.title, push.body, push.deepLink, push.channel)
         }
-
-        // Handle data-only messages
-        if (message.notification == null && message.data.isNotEmpty()) {
-            val title = message.data["title"] ?: "Groovitation"
-            val body = message.data["body"] ?: ""
-            val deepLink = message.data["url"]
-            val channel = message.data["channel"] ?: GroovitationApplication.CHANNEL_DEFAULT
-
-            showNotification(title, body, deepLink, channel)
-        }
-    }
-
-    private fun showNotification(
-        title: String,
-        body: String,
-        deepLink: String?,
-        channel: String
-    ) {
-        Companion.showNotification(this, title, body, deepLink, channel)
     }
 
     /**

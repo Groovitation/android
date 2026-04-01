@@ -18,6 +18,15 @@ class MainActivityLaunchInstrumentedTest {
             scenario.onActivity { activity ->
                 val bottomNav = activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottom_navigation)
                 assertNotNull("Bottom navigation should be present after app launch", bottomNav)
+                assertEquals(
+                    "Emulator lane must run the local flavor APK, not prod",
+                    "local",
+                    BuildConfig.FLAVOR
+                )
+                assertTrue(
+                    "Fixture-backed emulator lane must not point at the production site",
+                    BuildConfig.BASE_URL != "https://groovitation.blaha.io"
+                )
                 assertTrue(
                     "Bottom navigation item count must stay <= 5 to avoid runtime inflation crashes",
                     bottomNav.menu.size() <= 5

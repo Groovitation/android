@@ -498,6 +498,15 @@ class GroovitationWebFragment : HotwireWebFragment() {
             val mainActivity = activity as? MainActivity ?: return
             val context = mainActivity.applicationContext
 
+            GeolocationTestHooks.overrideFreshLocation?.let { testLocation ->
+                Log.d(
+                    TAG,
+                    "Dispatching geolocation test hook location: ${testLocation.latitude}, ${testLocation.longitude}"
+                )
+                dispatchLocationToWeb(testLocation.toAndroidLocation())
+                return
+            }
+
             val fusedClient = com.google.android.gms.location.LocationServices
                 .getFusedLocationProviderClient(context)
 

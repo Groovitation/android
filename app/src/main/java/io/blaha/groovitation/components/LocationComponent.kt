@@ -16,6 +16,7 @@ import dev.hotwire.core.bridge.BridgeComponent
 import dev.hotwire.core.bridge.BridgeDelegate
 import dev.hotwire.core.bridge.Message
 import dev.hotwire.navigation.destinations.HotwireDestination
+import io.blaha.groovitation.GeolocationTestHooks
 import io.blaha.groovitation.MainActivity
 import io.blaha.groovitation.services.GeofenceManager
 import io.blaha.groovitation.services.LocationTrackingService
@@ -91,6 +92,20 @@ class LocationComponent(
 
     private fun requestFreshLocation(message: Message) {
         val context = fragment.context ?: return
+
+        GeolocationTestHooks.overrideFreshLocation?.let { testLocation ->
+            replyTo(
+                "requestLocation",
+                LocationReply(
+                    success = true,
+                    latitude = testLocation.latitude,
+                    longitude = testLocation.longitude,
+                    accuracy = testLocation.accuracyMeters.toDouble(),
+                    altitude = testLocation.altitude
+                )
+            )
+            return
+        }
 
         try {
             // Request multiple updates over 10 seconds to get best GPS fix

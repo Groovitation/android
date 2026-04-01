@@ -19,18 +19,21 @@ import android.util.Log
 class TestPushReceiver : BroadcastReceiver() {
 
     companion object {
-        const val ACTION = "io.blaha.groovitation.TEST_PUSH"
+        const val ACTION = IncomingPushNotification.TEST_ACTION_SIMULATE_PUSH
         private const val TAG = "TestPushReceiver"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val title = intent.getStringExtra("title") ?: "Test Notification"
-        val body = intent.getStringExtra("body") ?: ""
-        val url = intent.getStringExtra("url")
-        val channel = intent.getStringExtra("channel") ?: GroovitationApplication.CHANNEL_DEFAULT
+        val push = IncomingPushNotification.fromTestIntent(intent)
 
-        Log.d(TAG, "Test push received: title=$title body=$body url=$url")
+        Log.d(TAG, "Test push received: title=${push.title} body=${push.body} url=${push.deepLink}")
 
-        GroovitationMessagingService.showNotification(context, title, body, url, channel)
+        GroovitationMessagingService.showNotification(
+            context.applicationContext,
+            push.title,
+            push.body,
+            push.deepLink,
+            push.channel
+        )
     }
 }
