@@ -33,4 +33,16 @@ class MainActivityStartupTest {
 
         assertFalse(MainActivity.shouldAutoRequestPermissions(testIntent))
     }
+
+    @Test
+    fun locationPermissionChainCanBeSkippedForInstrumentationIntent() {
+        assertTrue(MainActivity.shouldContinueLocationPermissionChain(Intent()))
+
+        val testIntent = Intent().putExtra(
+            MainActivity.EXTRA_SKIP_LOCATION_PERMISSION_CHAIN,
+            true
+        )
+
+        assertFalse(MainActivity.shouldContinueLocationPermissionChain(testIntent))
+    }
 }

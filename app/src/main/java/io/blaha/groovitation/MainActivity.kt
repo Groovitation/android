@@ -34,11 +34,7 @@ import io.blaha.groovitation.services.LocationWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
 
 class MainActivity : HotwireActivity() {
 
@@ -54,6 +50,8 @@ class MainActivity : HotwireActivity() {
         private const val WELCOME_NOTIFICATION_ID = 1001
         internal const val EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN =
             "io.blaha.groovitation.extra.DISABLE_STARTUP_PERMISSION_CHAIN"
+        internal const val EXTRA_SKIP_LOCATION_PERMISSION_CHAIN =
+            "io.blaha.groovitation.extra.SKIP_LOCATION_PERMISSION_CHAIN"
 
         internal fun reconcileNotificationPermissionStateForVersion(
             prefs: SharedPreferences,
@@ -76,6 +74,11 @@ class MainActivity : HotwireActivity() {
 
         internal fun shouldAutoRequestPermissions(intent: Intent?): Boolean {
             return intent?.getBooleanExtra(EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, false) != true
+        }
+
+        internal fun shouldContinueLocationPermissionChain(intent: Intent?): Boolean {
+            if (!BuildConfig.DEBUG) return true
+            return intent?.getBooleanExtra(EXTRA_SKIP_LOCATION_PERMISSION_CHAIN, false) != true
         }
     }
 
@@ -110,8 +113,7 @@ class MainActivity : HotwireActivity() {
             Log.w(TAG, "Notification permission denied")
         }
         dispatchNotificationPermissionState(notificationPermissionState())
-        // Chain: notification → location permission
-        requestLocationPermission()
+        continueLocationPermissionFlow()
     }
 
     private val locationPermissionLauncher = registerForActivityResult(
@@ -418,8 +420,11 @@ class MainActivity : HotwireActivity() {
                     if (fromWeb) {
                         dispatchNotificationPermissionState(notificationPermissionState())
                     }
-                    // Chain: notification already granted → location permission
-                    if (!fromWeb) requestLocationPermission()
+                    if (!fromWeb) continueLocationPermissionFlow()
+                }
+                !fromWeb && wasNotificationPermissionRequested() -> {
+                    dispatchNotificationPermissionState(notificationPermissionState())
+                    continueLocationPermissionFlow()
                 }
                 shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) -> {
                     markNotificationPermissionRequested()
@@ -436,9 +441,16 @@ class MainActivity : HotwireActivity() {
             if (fromWeb) {
                 dispatchNotificationPermissionState(notificationPermissionState())
             }
-            // Chain: pre-Tiramisu (no notification dialog) → location permission
-            if (!fromWeb) requestLocationPermission()
+            if (!fromWeb) continueLocationPermissionFlow()
         }
+    }
+
+    private fun continueLocationPermissionFlow() {
+        if (!shouldContinueLocationPermissionChain(intent)) {
+            Log.d(TAG, "Skipping location permission chain for instrumentation test intent")
+            return
+        }
+        requestLocationPermission()
     }
 
     private fun showWelcomeNotificationIfFirstLaunch() {
@@ -740,30 +752,19 @@ class MainActivity : HotwireActivity() {
         }
 
         fcmTokenRegistered = true
+        val registrationUrl = "${BuildConfig.BASE_URL}/api/notifications/tokens"
         scope.launch {
-            try {
-                val json = JSONObject().apply {
-                    put("token", token)
-                    put("platform", "android")
-                }
-
-                val request = Request.Builder()
-                    .url("${BuildConfig.BASE_URL}/api/notifications/tokens")
-                    .post(json.toString().toRequestBody("application/json".toMediaType()))
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Cookie", cookie)
-                    .build()
-
-                val response = httpClient.newCall(request).execute()
-                if (response.isSuccessful) {
-                    Log.d(TAG, "FCM token registered with server")
-                } else {
-                    Log.w(TAG, "FCM token registration failed: ${response.code}")
-                    fcmTokenRegistered = false
-                }
-                response.close()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error registering FCM token", e)
+            val success = NotificationTokenRegistrar.register(
+                context = applicationContext,
+                httpClient = httpClient,
+                url = registrationUrl,
+                token = token,
+                cookie = cookie
+            )
+            if (success) {
+                Log.d(TAG, "FCM token registered with server")
+            } else {
+                Log.w(TAG, "FCM token registration failed")
                 fcmTokenRegistered = false
             }
         }
@@ -795,6 +796,12 @@ class MainActivity : HotwireActivity() {
     }
 
     private fun fetchFcmToken() {
+        NotificationTestHooks.fakeFcmToken(this)?.let { token ->
+            Log.d(TAG, "Using debug test FCM token override")
+            TokenStorage.fcmToken = token
+            registerFcmTokenWithServer()
+            return
+        }
         try {
             FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                 if (task.isSuccessful) {
