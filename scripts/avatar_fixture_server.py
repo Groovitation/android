@@ -140,7 +140,7 @@ def render_account_page(state: dict[str, object]) -> bytes:
         "filename": state["filename"],
         "uploadBytes": upload_bytes,
     }
-    payload_json = html.escape(json.dumps(payload))
+    payload_json = json.dumps(payload).replace("</", "<\\/")
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -213,7 +213,7 @@ def render_account_page(state: dict[str, object]) -> bytes:
       </form>
     </main>
     <script>
-      window.__avatarFixture = JSON.parse("{payload_json}");
+      window.__avatarFixture = {payload_json};
       const input = document.getElementById("avatar-input");
       const pickerButton = document.getElementById("avatar-picker-button");
       const form = document.getElementById("avatar-form");
