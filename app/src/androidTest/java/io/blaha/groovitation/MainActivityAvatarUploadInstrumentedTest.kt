@@ -18,6 +18,7 @@ import androidx.test.espresso.web.webdriver.DriverAtoms.webKeys
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -169,16 +170,27 @@ class MainActivityAvatarUploadInstrumentedTest {
     }
 
     private fun selectSeededImageFromSystemPicker() {
-        val pickerVisible = device.wait(Until.hasObject(By.text(TEST_IMAGE_NAME)), 5_000) ||
-            device.wait(Until.hasObject(By.text("Downloads")), 5_000) ||
-            device.wait(Until.hasObject(By.textContains("Downloads")), 5_000)
-        assertTrue("Expected the Android document picker to appear", pickerVisible)
+        val pickerVisible = waitForAnyObject(
+            timeoutMs = 10_000,
+            By.text(TEST_IMAGE_NAME),
+            By.textContains(TEST_IMAGE_NAME),
+            By.descContains(TEST_IMAGE_NAME),
+            By.text("Browse"),
+            By.textContains("Browse"),
+            By.text("Downloads"),
+            By.textContains("Downloads"),
+            By.desc("More options"),
+            By.descContains("More options"),
+            By.desc("Show roots"),
+            By.descContains("Show roots")
+        ) != null
+        assertTrue("Expected the Android image picker or document picker to appear", pickerVisible)
 
-        var target = findAnyButton(TEST_IMAGE_NAME)
-        if (target == null) {
-            findAnyButton("Downloads")?.click()
-            target = device.wait(Until.findObject(By.text(TEST_IMAGE_NAME)), 10_000)
+        if (waitForSeededFileObject(timeoutMs = 2_000) == null) {
+            openDownloadsViaSystemPicker()
         }
+
+        val target = waitForSeededFileObject(timeoutMs = 10_000)
         assertNotNull("Expected the seeded image to be selectable in the picker", target)
         target!!.click()
 
@@ -192,6 +204,52 @@ class MainActivityAvatarUploadInstrumentedTest {
         for (label in labels) {
             device.findObject(By.text(label))?.let { return it }
             device.findObject(By.textContains(label))?.let { return it }
+        }
+        return null
+    }
+
+    private fun waitForAnyObject(timeoutMs: Long, vararg selectors: BySelector): UiObject2? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            for (selector in selectors) {
+                device.findObject(selector)?.let { return it }
+            }
+            Thread.sleep(250)
+        }
+        return null
+    }
+
+    private fun waitForSeededFileObject(timeoutMs: Long): UiObject2? {
+        return waitForAnyObject(
+            timeoutMs,
+            By.text(TEST_IMAGE_NAME),
+            By.textContains(TEST_IMAGE_NAME),
+            By.descContains(TEST_IMAGE_NAME)
+        )
+    }
+
+    private fun openDownloadsViaSystemPicker() {
+        findAnyByDescription("More options")?.click()
+        device.waitForIdle()
+
+        findAnyButton("Browse")?.click()
+        device.waitForIdle()
+
+        if (waitForSeededFileObject(timeoutMs = 1_500) != null) {
+            return
+        }
+
+        findAnyByDescription("Show roots")?.click()
+        device.waitForIdle()
+
+        findAnyButton("Downloads")?.click()
+        device.waitForIdle()
+    }
+
+    private fun findAnyByDescription(vararg labels: String): UiObject2? {
+        for (label in labels) {
+            device.findObject(By.desc(label))?.let { return it }
+            device.findObject(By.descContains(label))?.let { return it }
         }
         return null
     }
