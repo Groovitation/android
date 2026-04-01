@@ -1,6 +1,8 @@
 package io.blaha.groovitation
 
+import android.content.Intent
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,5 +20,17 @@ class MainActivityStartupTest {
             "BottomNavigationView supports a maximum of 5 items; more will crash at runtime",
             bottomNav.menu.size() <= 5
         )
+    }
+
+    @Test
+    fun startupPermissionChainCanBeDisabledForInstrumentationIntent() {
+        assertTrue(MainActivity.shouldAutoRequestPermissions(Intent()))
+
+        val testIntent = Intent().putExtra(
+            MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN,
+            true
+        )
+
+        assertFalse(MainActivity.shouldAutoRequestPermissions(testIntent))
     }
 }
