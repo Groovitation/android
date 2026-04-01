@@ -107,6 +107,10 @@ emulator-smoke-test:
       cleanup_on_signal() {
         echo "Caught signal, killing emulator..."
         EMU_PORT=$(cat /tmp/emu-port-${CI_JOB_ID} 2>/dev/null || echo "")
+        FIXTURE_PID=$(cat /tmp/avatar-fixture-${CI_JOB_ID}.pid 2>/dev/null || echo "")
+        if [ -n "$FIXTURE_PID" ]; then
+          kill "$FIXTURE_PID" 2>/dev/null || true
+        fi
         if [ -n "$EMU_PORT" ]; then
           adb -s "emulator-${EMU_PORT}" emu kill 2>/dev/null || true
           [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill -9 "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
@@ -184,7 +188,21 @@ emulator-smoke-test:
         echo "WARN: Package still installed after uninstall attempts, force-removing"
         adb -s "${ANDROID_SERIAL}" shell rm -rf /data/app/*/io.blaha.groovitation* 2>/dev/null || true
       fi
-    - ./gradlew connectedLocalDebugAndroidTest --no-daemon -Pandroid.testInstrumentationRunnerArguments.notClass=io.blaha.groovitation.MainActivityWebStylingInstrumentedTest
+    - |
+      FIXTURE_PORT=$(python3 -c "import socket; sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM); sock.bind(('127.0.0.1', 0)); print(sock.getsockname()[1]); sock.close()")
+      export FIXTURE_PORT
+      mkdir -p build/ci-logs
+      python3 scripts/avatar_fixture_server.py --host 127.0.0.1 --port "${FIXTURE_PORT}" \
+        > build/ci-logs/avatar-fixture-server.log 2>&1 &
+      echo "$!" > /tmp/avatar-fixture-${CI_JOB_ID}.pid
+      for _ in $(seq 1 30); do
+        if curl -sf "http://127.0.0.1:${FIXTURE_PORT}/healthz" >/dev/null; then
+          break
+        fi
+        sleep 1
+      done
+      curl -sf "http://127.0.0.1:${FIXTURE_PORT}/healthz" >/dev/null
+    - ./gradlew connectedLocalDebugAndroidTest --no-daemon -PgroovitationLocalBaseUrl="http://10.0.2.2:${FIXTURE_PORT}" -Pandroid.testInstrumentationRunnerArguments.notClass=io.blaha.groovitation.MainActivityWebStylingInstrumentedTest
     - |
       timeout 10s adb -s "${ANDROID_SERIAL}" emu kill || true
       if [ -f "/tmp/emulator-${EMU_PORT}.pid" ]; then kill "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true; fi
@@ -192,6 +210,9 @@ emulator-smoke-test:
     - export ANDROID_HOME="/home/ben/Android/Sdk"
     - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
     - |
+      if [ -f "/tmp/avatar-fixture-${CI_JOB_ID}.pid" ]; then
+        kill "$(cat "/tmp/avatar-fixture-${CI_JOB_ID}.pid")" 2>/dev/null || true
+      fi
       EMU_PORT=$(cat /tmp/emu-port-${CI_JOB_ID} 2>/dev/null || echo "")
       if [ -n "$EMU_PORT" ]; then
         adb -s "emulator-${EMU_PORT}" emu kill 2>/dev/null || true
@@ -208,6 +229,8 @@ emulator-smoke-test:
     reports:
       junit:
         - app/build/outputs/androidTest-results/**/*.xml
+    paths:
+      - build/ci-logs/avatar-fixture-server.log
 
 deploy:
   stage: deploy
