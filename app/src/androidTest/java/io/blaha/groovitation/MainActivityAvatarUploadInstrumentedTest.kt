@@ -79,8 +79,9 @@ class MainActivityAvatarUploadInstrumentedTest {
                 )
             }
 
-            onWebView().withElement(findElement(Locator.ID, "avatar-picker-button")).perform(webClick())
+            onWebView().withElement(findElement(Locator.ID, "avatar-input")).perform(webClick())
             selectSeededImageFromSystemPicker()
+            onWebView().withElement(findElement(Locator.ID, "avatar-save")).perform(webClick())
 
             val uploadedState = waitForPageState(webView, timeoutMs = 45_000) { state ->
                 state.path == "/users/edit" &&

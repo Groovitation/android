@@ -174,23 +174,21 @@ def render_account_page(state: dict[str, object]) -> bytes:
       .meta {{
         margin-top: 16px;
       }}
-      .picker-button {{
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+      #avatar-input {{
+        display: block;
+        width: 100%;
+        margin-top: 12px;
+        min-height: 48px;
+      }}
+      #avatar-save {{
         margin-top: 20px;
         min-height: 52px;
         padding: 0 20px;
+        border: 0;
         border-radius: 14px;
         background: #1257d6;
         color: white;
         font-weight: 700;
-      }}
-      #avatar-input {{
-        position: absolute;
-        left: -9999px;
-        width: 1px;
-        height: 1px;
       }}
       .hint {{
         color: #5f5f5f;
@@ -208,25 +206,27 @@ def render_account_page(state: dict[str, object]) -> bytes:
         <p class="hint">Choose a supported image file to replace the avatar.</p>
       </div>
       <form id="avatar-form" action="/users/avatar" method="post" enctype="multipart/form-data">
+        <label for="avatar-input">Avatar</label>
         <input id="avatar-input" name="avatar" type="file" accept="image/*" />
-        <button id="avatar-picker-button" class="picker-button" type="button">Choose avatar image</button>
+        <input id="avatar-save" type="submit" value="Upload" />
       </form>
     </main>
     <script>
       window.__avatarFixture = {payload_json};
       const input = document.getElementById("avatar-input");
-      const pickerButton = document.getElementById("avatar-picker-button");
       const form = document.getElementById("avatar-form");
       const status = document.getElementById("avatar-status");
+      const saveButton = document.getElementById("avatar-save");
 
-      pickerButton.addEventListener("click", function() {{
-        input.click();
-      }});
-
-      input.addEventListener("change", function() {{
-        if (!input.files || input.files.length === 0) return;
+      form.addEventListener("submit", function(event) {{
+        if (!input.files || input.files.length === 0) {{
+          event.preventDefault();
+          status.textContent = "Please choose a file first.";
+          return;
+        }}
+        saveButton.disabled = true;
+        saveButton.value = "Uploading...";
         status.textContent = "Uploading " + input.files[0].name + "...";
-        form.requestSubmit();
       }});
     </script>
   </body>
