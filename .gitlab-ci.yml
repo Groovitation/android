@@ -7,6 +7,7 @@ variables:
   ANDROID_COMPILE_SDK: "35"
   ANDROID_BUILD_TOOLS: "35.0.0"
   ANDROID_SDK_TOOLS: "11076708"
+  ANDROID_FIXTURE_BASE_URL: "http://10.0.2.2:3000"
 
 # Auto-retry jobs that never start because the shared runner is temporarily unavailable.
 default:
@@ -70,20 +71,27 @@ build:
   <<: *android_setup
   stage: build
   script:
-    - ./gradlew assembleProdDebug --no-daemon
+    - echo "Build contract: prodDebug APK targets https://groovitation.blaha.io"
+    - echo "Build contract: localDebug APK targets fixture backend ${ANDROID_FIXTURE_BASE_URL}"
+    - ./gradlew assembleProdDebug assembleLocalDebug --no-daemon -PgroovitationLocalBaseUrl="${ANDROID_FIXTURE_BASE_URL}"
   artifacts:
     paths:
       - app/build/outputs/apk/prod/debug/app-prod-debug.apk
+      - app/build/outputs/apk/local/debug/app-local-debug.apk
     expire_in: 1 week
 
 test:
   <<: *android_setup
   stage: test
   script:
-    - ./gradlew testProdDebugUnitTest --no-daemon
+    - echo "Unit test contract: prodDebug coverage plus localDebug fixture lane coverage"
+    - echo "Fixture backend under test: ${ANDROID_FIXTURE_BASE_URL}"
+    - ./gradlew testProdDebugUnitTest testLocalDebugUnitTest --no-daemon -PgroovitationLocalBaseUrl="${ANDROID_FIXTURE_BASE_URL}"
   artifacts:
     reports:
-      junit: app/build/test-results/testProdDebugUnitTest/*.xml
+      junit:
+        - app/build/test-results/testProdDebugUnitTest/*.xml
+        - app/build/test-results/testLocalDebugUnitTest/*.xml
 
 lint:
   <<: *android_setup
@@ -102,6 +110,10 @@ emulator-smoke-test:
   # Two emulator slots (5556/5558) via flock. Core uses port 5554.
   # All three share the ci-api35 AVD from /home/ben/.android/avd/ (cold boot, no snapshot).
   script:
+    - echo "Native emulator lane: localDebug fixture-backed checks"
+    - echo "APK under test: localDebug"
+    - echo "Backend under test: ${ANDROID_FIXTURE_BASE_URL}"
+    - echo "Production-only smoke remains in root/groovitation post-deploy smoke-test-android."
     # Ensure emulator child processes are killed on cancel/timeout
     - |
       cleanup_on_signal() {
@@ -184,7 +196,7 @@ emulator-smoke-test:
         echo "WARN: Package still installed after uninstall attempts, force-removing"
         adb -s "${ANDROID_SERIAL}" shell rm -rf /data/app/*/io.blaha.groovitation* 2>/dev/null || true
       fi
-    - ./gradlew connectedLocalDebugAndroidTest --no-daemon -Pandroid.testInstrumentationRunnerArguments.notClass=io.blaha.groovitation.MainActivityWebStylingInstrumentedTest
+    - ./gradlew connectedLocalDebugAndroidTest --no-daemon -PgroovitationLocalBaseUrl="${ANDROID_FIXTURE_BASE_URL}" -Pandroid.testInstrumentationRunnerArguments.notClass=io.blaha.groovitation.MainActivityWebStylingInstrumentedTest
     - |
       timeout 10s adb -s "${ANDROID_SERIAL}" emu kill || true
       if [ -f "/tmp/emulator-${EMU_PORT}.pid" ]; then kill "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true; fi

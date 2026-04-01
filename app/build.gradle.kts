@@ -5,6 +5,17 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+val prodBaseUrl = "https://groovitation.blaha.io"
+val defaultLocalBaseUrl = "http://10.0.2.2:3000"
+val configuredLocalBaseUrl = providers.gradleProperty("groovitationLocalBaseUrl")
+    .orElse(providers.environmentVariable("GROOVITATION_LOCAL_BASE_URL"))
+    .orElse(defaultLocalBaseUrl)
+    .get()
+    .trim()
+    .removeSuffix("/")
+
+fun String.asBuildConfigString(): String = "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
 android {
     namespace = "io.blaha.groovitation"
     compileSdk = 35
@@ -13,8 +24,8 @@ android {
         applicationId = "io.blaha.groovitation"
         minSdk = 28
         targetSdk = 35
-        versionCode = 98
-        versionName = "1.0.97"
+        versionCode = 99
+        versionName = "1.0.98"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -28,12 +39,13 @@ android {
         create("prod") {
             dimension = "server"
             // Production server (Cloudflare)
-            buildConfigField("String", "BASE_URL", "\"https://groovitation.blaha.io\"")
+            buildConfigField("String", "BASE_URL", prodBaseUrl.asBuildConfigString())
         }
         create("local") {
             dimension = "server"
-            // Local server for CI testing (10.0.2.2 = host localhost from emulator)
-            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:3000\"")
+            // Local server for CI testing (10.0.2.2 = host localhost from emulator).
+            // CI can override this for fixture-backed lanes without changing the flavor contract.
+            buildConfigField("String", "BASE_URL", configuredLocalBaseUrl.asBuildConfigString())
             // No applicationIdSuffix - reuse same google-services.json
         }
     }
