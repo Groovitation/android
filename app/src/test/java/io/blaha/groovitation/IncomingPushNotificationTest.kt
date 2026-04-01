@@ -43,9 +43,9 @@ class IncomingPushNotificationTest {
     }
 
     @Test
-    fun debugIntentFallsBackToDefaultRouteAndChannel() {
-        val push = IncomingPushNotification.fromDebugIntent(
-            Intent(IncomingPushNotification.DEBUG_ACTION_SIMULATE_PUSH).apply {
+    fun testIntentFallsBackToDefaultRouteAndChannel() {
+        val push = IncomingPushNotification.fromTestIntent(
+            Intent(IncomingPushNotification.TEST_ACTION_SIMULATE_PUSH).apply {
                 putExtra(IncomingPushNotification.EXTRA_TITLE, "CI Push")
             }
         )

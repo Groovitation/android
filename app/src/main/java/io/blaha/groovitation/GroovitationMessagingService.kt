@@ -1,5 +1,6 @@
 package io.blaha.groovitation
 
+import android.content.Context
 import android.util.Log
 import android.webkit.CookieManager
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -22,6 +23,23 @@ class GroovitationMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "GroovitationFCM"
+
+        fun showNotification(
+            context: Context,
+            title: String,
+            body: String,
+            deepLink: String?,
+            channel: String
+        ) {
+            val push = IncomingPushNotification(
+                title = title.ifBlank { "Groovitation" },
+                body = body,
+                deepLink = deepLink,
+                channel = channel.ifBlank { GroovitationApplication.CHANNEL_DEFAULT }
+            )
+            IncomingPushNotificationNotifier(context.applicationContext).show(push)
+            Log.d(TAG, "Notification shown: ${push.title}")
+        }
     }
 
     private val httpClient = OkHttpClient()
@@ -45,8 +63,7 @@ class GroovitationMessagingService : FirebaseMessagingService() {
         Log.d(TAG, "Message received from: ${message.from}")
         val push = IncomingPushNotification.fromRemoteMessage(message)
         if (push != null) {
-            IncomingPushNotificationNotifier(applicationContext).show(push)
-            Log.d(TAG, "Notification shown: ${push.title}")
+            showNotification(applicationContext, push.title, push.body, push.deepLink, push.channel)
         }
     }
 

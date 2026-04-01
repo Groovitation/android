@@ -23,7 +23,7 @@ data class IncomingPushNotification(
         }
 
     companion object {
-        const val DEBUG_ACTION_SIMULATE_PUSH = "io.blaha.groovitation.debug.SIMULATE_PUSH_NOTIFICATION"
+        const val TEST_ACTION_SIMULATE_PUSH = "io.blaha.groovitation.TEST_PUSH"
         const val EXTRA_TITLE = "title"
         const val EXTRA_BODY = "body"
         const val EXTRA_URL = "url"
@@ -49,7 +49,7 @@ data class IncomingPushNotification(
             )
         }
 
-        fun fromDebugIntent(intent: Intent): IncomingPushNotification {
+        fun fromTestIntent(intent: Intent): IncomingPushNotification {
             return IncomingPushNotification(
                 title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Groovitation" },
                 body = intent.getStringExtra(EXTRA_BODY).orEmpty(),
