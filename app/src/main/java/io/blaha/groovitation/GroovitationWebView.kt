@@ -117,9 +117,15 @@ class GroovitationWebView @JvmOverloads constructor(
 
             if (hasPermission) {
                 Log.d(TAG, "Auto-granting WebView geolocation for $origin")
+                GeolocationTestHooks.recordWebViewGeolocationDecision(
+                    GeolocationTestHooks.WebViewGeolocationDecision.AUTO_GRANTED
+                )
                 callback.invoke(origin, true, false)
             } else {
                 Log.d(TAG, "No native location permission, denying WebView geolocation")
+                GeolocationTestHooks.recordWebViewGeolocationDecision(
+                    GeolocationTestHooks.WebViewGeolocationDecision.DENIED
+                )
                 callback.invoke(origin, false, false)
             }
         }
