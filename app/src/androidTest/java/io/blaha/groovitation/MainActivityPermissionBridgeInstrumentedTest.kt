@@ -8,6 +8,8 @@ import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -38,7 +40,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
         PermissionBridgeTestHooks.overrideNotificationPermissionState = "denied"
 
         launchProbePage().use { scenario ->
-            val webView = waitForWebView(scenario, timeoutMs = 45_000)
+            var webView = waitForWebView(scenario, timeoutMs = 45_000)
             val initialProbe = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -61,10 +63,10 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 }
             )
             assertEquals("granted", afterGrant.notificationState)
-        }
 
-        launchProbePage().use { scenario ->
-            val webView = waitForWebView(scenario, timeoutMs = 45_000)
+            scenario.recreate()
+            instrumentation.waitForIdleSync()
+            webView = waitForWebView(scenario, timeoutMs = 45_000)
             val relaunchedGranted = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -87,10 +89,10 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 }
             )
             assertEquals("denied", afterRevoke.notificationState)
-        }
 
-        launchProbePage().use { scenario ->
-            val webView = waitForWebView(scenario, timeoutMs = 45_000)
+            scenario.recreate()
+            instrumentation.waitForIdleSync()
+            webView = waitForWebView(scenario, timeoutMs = 45_000)
             val relaunchedDenied = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -108,7 +110,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
         PermissionBridgeTestHooks.overrideLocationPermissionGranted = false
 
         launchProbePage().use { scenario ->
-            val webView = waitForWebView(scenario, timeoutMs = 45_000)
+            var webView = waitForWebView(scenario, timeoutMs = 45_000)
             val initialProbe = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -131,10 +133,10 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 }
             )
             assertEquals("granted", afterGrant.locationState)
-        }
 
-        launchProbePage().use { scenario ->
-            val webView = waitForWebView(scenario, timeoutMs = 45_000)
+            scenario.recreate()
+            instrumentation.waitForIdleSync()
+            webView = waitForWebView(scenario, timeoutMs = 45_000)
             val relaunchedGranted = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -157,10 +159,10 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 }
             )
             assertEquals("denied", afterRevoke.locationState)
-        }
 
-        launchProbePage().use { scenario ->
-            val webView = waitForWebView(scenario, timeoutMs = 45_000)
+            scenario.recreate()
+            instrumentation.waitForIdleSync()
+            webView = waitForWebView(scenario, timeoutMs = 45_000)
             val relaunchedDenied = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -174,14 +176,40 @@ class MainActivityPermissionBridgeInstrumentedTest {
     }
 
     private fun launchProbePage(): ActivityScenario<MainActivity> {
+        waitForFixtureBackend(timeoutMs = 30_000)
         val intent = Intent(targetContext, MainActivity::class.java).apply {
             putExtra("url", probeUrl)
             putExtra(MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, true)
-            // MainActivity is singleTop; clear the task so each relaunch assertion
-            // exercises a fresh navigator + WebView attachment cycle.
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         return ActivityScenario.launch(intent)
+    }
+
+    private fun waitForFixtureBackend(timeoutMs: Long) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastFailure = "fixture backend was never contacted"
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                val connection = (URL("${BuildConfig.BASE_URL}/healthz").openConnection() as HttpURLConnection)
+                connection.connectTimeout = 2_000
+                connection.readTimeout = 2_000
+                connection.requestMethod = "GET"
+                connection.instanceFollowRedirects = true
+                try {
+                    connection.inputStream.use { input ->
+                        if (connection.responseCode in 200..299 && input.bufferedReader().readText().trim() == "ok") {
+                            return
+                        }
+                        lastFailure = "unexpected healthz response ${connection.responseCode}"
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            } catch (error: Exception) {
+                lastFailure = error.message ?: error::class.java.simpleName
+            }
+            Thread.sleep(250)
+        }
+        throw AssertionError("Timed out waiting for fixture backend at ${BuildConfig.BASE_URL}/healthz ($lastFailure)")
     }
 
     private fun changePermissionsAndWaitForProbe(

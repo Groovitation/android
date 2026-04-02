@@ -74,12 +74,13 @@ class LocationWorker(
         }
 
         fun enqueueOneShot(context: Context) {
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
+            val constraintsBuilder = Constraints.Builder()
+            if (!LocationWorkerTestHooks.enabled) {
+                constraintsBuilder.setRequiredNetworkType(NetworkType.CONNECTED)
+            }
 
             val request = OneTimeWorkRequestBuilder<LocationWorker>()
-                .setConstraints(constraints)
+                .setConstraints(constraintsBuilder.build())
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(

@@ -32,6 +32,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
@@ -108,6 +110,7 @@ class MainActivityAvatarUploadInstrumentedTest {
     }
 
     private fun launchAvatarScenario(): ActivityScenario<MainActivity> {
+        waitForFixtureBackend(timeoutMs = 30_000)
         val intent = Intent(
             instrumentation.targetContext,
             MainActivity::class.java
@@ -116,6 +119,34 @@ class MainActivityAvatarUploadInstrumentedTest {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return ActivityScenario.launch(intent)
+    }
+
+    private fun waitForFixtureBackend(timeoutMs: Long) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastFailure = "fixture backend was never contacted"
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                val connection = (URL("${BuildConfig.BASE_URL}/healthz").openConnection() as HttpURLConnection)
+                connection.connectTimeout = 2_000
+                connection.readTimeout = 2_000
+                connection.requestMethod = "GET"
+                connection.instanceFollowRedirects = true
+                try {
+                    connection.inputStream.use { input ->
+                        if (connection.responseCode in 200..299 && input.bufferedReader().readText().trim() == "ok") {
+                            return
+                        }
+                        lastFailure = "unexpected healthz response ${connection.responseCode}"
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            } catch (error: Exception) {
+                lastFailure = error.message ?: error::class.java.simpleName
+            }
+            Thread.sleep(250)
+        }
+        throw AssertionError("Timed out waiting for fixture backend at ${BuildConfig.BASE_URL}/healthz ($lastFailure)")
     }
 
     private fun seedDeterministicDownload() {
