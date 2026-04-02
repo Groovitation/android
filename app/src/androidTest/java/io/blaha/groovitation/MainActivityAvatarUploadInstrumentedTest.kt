@@ -23,7 +23,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiObject
 import androidx.test.uiautomator.UiObject2
+import androidx.test.uiautomator.UiScrollable
+import androidx.test.uiautomator.UiSelector
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -41,6 +44,7 @@ class MainActivityAvatarUploadInstrumentedTest {
         private const val TEST_IMAGE_NAME = "avatar-ci-upload.png"
         private const val FIXTURE_EMAIL = "fixture-user@groovitation.test"
         private const val FIXTURE_PASSWORD = "fixture-password"
+        private const val PHOTO_PICKER_PACKAGE_REGEX = "com(.google)?.android.providers.media(.module)?"
     }
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -165,6 +169,12 @@ class MainActivityAvatarUploadInstrumentedTest {
     }
 
     private fun selectSeededImageFromSystemPicker() {
+        waitForPhotoPickerItem(timeoutMs = 10_000)?.let { photoPickerItem ->
+            photoPickerItem.click()
+            device.waitForIdle()
+            return
+        }
+
         val pickerVisible = waitForAnyObject(
             timeoutMs = 10_000,
             By.text(TEST_IMAGE_NAME),
@@ -201,6 +211,24 @@ class MainActivityAvatarUploadInstrumentedTest {
             device.findObject(By.textContains(label))?.let { return it }
         }
         return null
+    }
+
+    private fun waitForPhotoPickerItem(timeoutMs: Long): UiObject? {
+        val gridSelector = UiSelector()
+            .className("androidx.recyclerview.widget.RecyclerView")
+            .resourceIdMatches("$PHOTO_PICKER_PACKAGE_REGEX:id/picker_tab_recyclerview")
+        val firstGridChild = UiObject(gridSelector.childSelector(UiSelector()))
+        if (!firstGridChild.waitForExists(timeoutMs)) {
+            return null
+        }
+
+        val itemSelector = UiSelector().resourceIdMatches(
+            "$PHOTO_PICKER_PACKAGE_REGEX:id/icon_thumbnail"
+        )
+        val grid = UiScrollable(gridSelector)
+        return runCatching { grid.getChildByInstance(itemSelector, 0) }
+            .getOrNull()
+            ?.takeIf { it.exists() }
     }
 
     private fun waitForAnyObject(timeoutMs: Long, vararg selectors: BySelector): UiObject2? {
