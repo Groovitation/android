@@ -7,7 +7,6 @@ import android.graphics.Color
 import android.os.Environment
 import android.os.SystemClock
 import android.provider.MediaStore
-import android.view.InputDevice
 import android.view.MotionEvent
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
@@ -327,50 +326,39 @@ class MainActivityAvatarUploadInstrumentedTest {
     }
 
     private fun injectTouch(webView: WebView, target: TapTarget) {
-        var screenX = 0f
-        var screenY = 0f
         instrumentation.runOnMainSync {
             webView.requestFocus()
-            val location = IntArray(2)
-            webView.getLocationOnScreen(location)
 
             val maxLocalX = (webView.width - 2).coerceAtLeast(1).toFloat()
             val maxLocalY = (webView.height - 2).coerceAtLeast(1).toFloat()
             val localX = (target.xFraction * webView.width.toFloat()).coerceIn(1f, maxLocalX)
             val localY = (target.yFraction * webView.height.toFloat()).coerceIn(1f, maxLocalY)
 
-            screenX = location[0] + localX
-            screenY = location[1] + localY
-        }
+            val downTime = SystemClock.uptimeMillis()
+            val downEvent = MotionEvent.obtain(
+                downTime,
+                downTime,
+                MotionEvent.ACTION_DOWN,
+                localX,
+                localY,
+                0
+            )
+            val upEvent = MotionEvent.obtain(
+                downTime,
+                downTime + 120,
+                MotionEvent.ACTION_UP,
+                localX,
+                localY,
+                0
+            )
 
-        val downTime = SystemClock.uptimeMillis()
-        val downEvent = MotionEvent.obtain(
-            downTime,
-            downTime,
-            MotionEvent.ACTION_DOWN,
-            screenX,
-            screenY,
-            0
-        ).apply {
-            source = InputDevice.SOURCE_TOUCHSCREEN
-        }
-        val upEvent = MotionEvent.obtain(
-            downTime,
-            downTime + 120,
-            MotionEvent.ACTION_UP,
-            screenX,
-            screenY,
-            0
-        ).apply {
-            source = InputDevice.SOURCE_TOUCHSCREEN
-        }
-
-        try {
-            instrumentation.sendPointerSync(downEvent)
-            instrumentation.sendPointerSync(upEvent)
-        } finally {
-            downEvent.recycle()
-            upEvent.recycle()
+            try {
+                webView.dispatchTouchEvent(downEvent)
+                webView.dispatchTouchEvent(upEvent)
+            } finally {
+                downEvent.recycle()
+                upEvent.recycle()
+            }
         }
 
         instrumentation.waitForIdleSync()

@@ -1,7 +1,6 @@
 package io.blaha.groovitation
 
 import android.Manifest
-import android.app.UiAutomation
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -24,25 +23,19 @@ class MainActivityPermissionBridgeInstrumentedTest {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val targetContext: Context = instrumentation.targetContext
-    private val packageName: String = targetContext.packageName
     private val probeUrl: String = "${BuildConfig.BASE_URL}/test/permission-bridge"
 
     @After
     fun tearDown() {
+        PermissionBridgeTestHooks.reset()
         setNotificationPermissionRequested(false)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            revokePermission(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        revokePermission(Manifest.permission.ACCESS_FINE_LOCATION)
-        revokePermission(Manifest.permission.ACCESS_COARSE_LOCATION)
     }
 
     @Test
     fun notificationPermissionBridgeSyncsIntoWebViewAcrossChangeAndRelaunch() {
         assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
 
-        setNotificationPermissionRequested(true)
-        revokePermission(Manifest.permission.POST_NOTIFICATIONS)
+        PermissionBridgeTestHooks.overrideNotificationPermissionState = "denied"
 
         launchProbePage().use { scenario ->
             val webView = waitForWebView(scenario, timeoutMs = 45_000)
@@ -60,7 +53,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 scenario = scenario,
                 webView = webView,
                 mutatePermissions = {
-                    grantPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    PermissionBridgeTestHooks.overrideNotificationPermissionState = "granted"
                 },
                 predicate = { before, probe ->
                     probe.notificationState == "granted" &&
@@ -86,8 +79,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 scenario = scenario,
                 webView = webView,
                 mutatePermissions = {
-                    setNotificationPermissionRequested(true)
-                    revokePermission(Manifest.permission.POST_NOTIFICATIONS)
+                    PermissionBridgeTestHooks.overrideNotificationPermissionState = "denied"
                 },
                 predicate = { before, probe ->
                     probe.notificationState == "denied" &&
@@ -113,8 +105,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
 
     @Test
     fun locationPermissionBridgeSyncsIntoWebViewAcrossChangeAndRelaunch() {
-        revokePermission(Manifest.permission.ACCESS_FINE_LOCATION)
-        revokePermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+        PermissionBridgeTestHooks.overrideLocationPermissionGranted = false
 
         launchProbePage().use { scenario ->
             val webView = waitForWebView(scenario, timeoutMs = 45_000)
@@ -132,7 +123,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 scenario = scenario,
                 webView = webView,
                 mutatePermissions = {
-                    grantPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                    PermissionBridgeTestHooks.overrideLocationPermissionGranted = true
                 },
                 predicate = { before, probe ->
                     probe.locationState == "granted" &&
@@ -158,8 +149,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 scenario = scenario,
                 webView = webView,
                 mutatePermissions = {
-                    revokePermission(Manifest.permission.ACCESS_FINE_LOCATION)
-                    revokePermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    PermissionBridgeTestHooks.overrideLocationPermissionGranted = false
                 },
                 predicate = { before, probe ->
                     probe.locationState == "denied" &&
@@ -316,58 +306,6 @@ class MainActivityPermissionBridgeInstrumentedTest {
             .edit()
             .putBoolean("notification_permission_requested", requested)
             .apply()
-    }
-
-    private fun grantPermission(permission: String) {
-        mutateRuntimePermission(
-            fallbackCommand = "pm grant $packageName $permission"
-        ) { uiAutomation ->
-            uiAutomation.grantRuntimePermission(packageName, permission)
-        }
-    }
-
-    private fun revokePermission(permission: String) {
-        mutateRuntimePermission(
-            fallbackCommand = "pm revoke $packageName $permission"
-        ) { uiAutomation ->
-            uiAutomation.revokeRuntimePermission(packageName, permission)
-        }
-    }
-
-    private fun mutateRuntimePermission(
-        fallbackCommand: String,
-        mutation: (UiAutomation) -> Unit
-    ) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            runShellCommand(fallbackCommand)
-            return
-        }
-
-        val uiAutomation = instrumentation.uiAutomation
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            uiAutomation.adoptShellPermissionIdentity()
-        }
-        try {
-            mutation(uiAutomation)
-        } finally {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                uiAutomation.dropShellPermissionIdentity()
-            }
-        }
-        instrumentation.waitForIdleSync()
-        Thread.sleep(250)
-    }
-
-    private fun runShellCommand(command: String) {
-        val descriptor = instrumentation.uiAutomation.executeShellCommand(command)
-        android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
-            val buffer = ByteArray(4096)
-            while (input.read(buffer) != -1) {
-                // Drain stdout so the shell command can complete cleanly.
-            }
-        }
-        instrumentation.waitForIdleSync()
-        Thread.sleep(250)
     }
 
     data class ProbeSnapshot(
