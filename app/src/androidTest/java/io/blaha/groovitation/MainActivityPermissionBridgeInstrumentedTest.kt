@@ -1,6 +1,7 @@
 package io.blaha.groovitation
 
 import android.Manifest
+import android.app.UiAutomation
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -318,16 +319,47 @@ class MainActivityPermissionBridgeInstrumentedTest {
     }
 
     private fun grantPermission(permission: String) {
-        runShellCommand("pm grant $packageName $permission")
+        mutateRuntimePermission(
+            fallbackCommand = "pm grant $packageName $permission"
+        ) { uiAutomation ->
+            uiAutomation.grantRuntimePermission(packageName, permission)
+        }
     }
 
     private fun revokePermission(permission: String) {
-        runShellCommand("pm revoke $packageName $permission")
+        mutateRuntimePermission(
+            fallbackCommand = "pm revoke $packageName $permission"
+        ) { uiAutomation ->
+            uiAutomation.revokeRuntimePermission(packageName, permission)
+        }
+    }
+
+    private fun mutateRuntimePermission(
+        fallbackCommand: String,
+        mutation: (UiAutomation) -> Unit
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            runShellCommand(fallbackCommand)
+            return
+        }
+
+        val uiAutomation = instrumentation.uiAutomation
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            uiAutomation.adoptShellPermissionIdentity()
+        }
+        try {
+            mutation(uiAutomation)
+        } finally {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                uiAutomation.dropShellPermissionIdentity()
+            }
+        }
+        instrumentation.waitForIdleSync()
+        Thread.sleep(250)
     }
 
     private fun runShellCommand(command: String) {
-        val uiAutomation = instrumentation.uiAutomation
-        val descriptor = uiAutomation.executeShellCommand(command)
+        val descriptor = instrumentation.uiAutomation.executeShellCommand(command)
         android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
             val buffer = ByteArray(4096)
             while (input.read(buffer) != -1) {

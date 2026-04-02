@@ -5,7 +5,10 @@ import android.content.ContentValues
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.MediaStore
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -21,7 +24,6 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
-import androidx.test.uiautomator.Until
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -80,7 +82,7 @@ class MainActivityAvatarUploadInstrumentedTest {
                 )
             }
 
-            onWebView().withElement(findElement(Locator.ID, "avatar-input")).perform(webClick())
+            tapElementWithUserActivation(webView, "avatar-input")
             selectSeededImageFromSystemPicker()
             onWebView().withElement(findElement(Locator.ID, "avatar-save")).perform(webClick())
 
@@ -254,6 +256,127 @@ class MainActivityAvatarUploadInstrumentedTest {
         return null
     }
 
+    private fun tapElementWithUserActivation(webView: WebView, elementId: String) {
+        val target = waitForTapTarget(webView, elementId, timeoutMs = 10_000)
+        assertNotNull("Expected #$elementId to be visible in the WebView", target)
+        injectTouch(webView, target!!)
+    }
+
+    private fun waitForTapTarget(
+        webView: WebView,
+        elementId: String,
+        timeoutMs: Long
+    ): TapTarget? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastTarget: TapTarget? = null
+        while (System.currentTimeMillis() < deadline) {
+            val target = evaluateTapTarget(webView, elementId)
+            if (target != null) {
+                lastTarget = target
+                if (target.visible) {
+                    return target
+                }
+            }
+            Thread.sleep(250)
+        }
+        return lastTarget
+    }
+
+    private fun evaluateTapTarget(webView: WebView, elementId: String): TapTarget? {
+        val script = """
+            (function() {
+              var element = document.getElementById(${JSONObject.quote(elementId)});
+              if (!element) return null;
+              element.scrollIntoView({ block: 'center', inline: 'center' });
+              var rect = element.getBoundingClientRect();
+              var viewportWidth = Math.max(window.innerWidth || 0, 1);
+              var viewportHeight = Math.max(window.innerHeight || 0, 1);
+              var centerX = rect.left + (rect.width / 2);
+              var centerY = rect.top + (rect.height / 2);
+              var visible = rect.width > 0 &&
+                rect.height > 0 &&
+                centerX >= 0 &&
+                centerX <= viewportWidth &&
+                centerY >= 0 &&
+                centerY <= viewportHeight;
+              return JSON.stringify({
+                visible: visible,
+                xFraction: centerX / viewportWidth,
+                yFraction: centerY / viewportHeight
+              });
+            })();
+        """.trimIndent()
+
+        val latch = CountDownLatch(1)
+        var rawResult: String? = null
+        webView.post {
+            webView.evaluateJavascript(script) { value ->
+                rawResult = value
+                latch.countDown()
+            }
+        }
+
+        if (!latch.await(10, TimeUnit.SECONDS)) return null
+        val decoded = decodeJsString(rawResult) ?: return null
+        val payload = runCatching { JSONObject(decoded) }.getOrNull() ?: return null
+        return TapTarget(
+            visible = payload.optBoolean("visible", false),
+            xFraction = payload.optDouble("xFraction", -1.0).toFloat(),
+            yFraction = payload.optDouble("yFraction", -1.0).toFloat()
+        )
+    }
+
+    private fun injectTouch(webView: WebView, target: TapTarget) {
+        var screenX = 0f
+        var screenY = 0f
+        instrumentation.runOnMainSync {
+            webView.requestFocus()
+            val location = IntArray(2)
+            webView.getLocationOnScreen(location)
+
+            val maxLocalX = (webView.width - 2).coerceAtLeast(1).toFloat()
+            val maxLocalY = (webView.height - 2).coerceAtLeast(1).toFloat()
+            val localX = (target.xFraction * webView.width.toFloat()).coerceIn(1f, maxLocalX)
+            val localY = (target.yFraction * webView.height.toFloat()).coerceIn(1f, maxLocalY)
+
+            screenX = location[0] + localX
+            screenY = location[1] + localY
+        }
+
+        val downTime = SystemClock.uptimeMillis()
+        val downEvent = MotionEvent.obtain(
+            downTime,
+            downTime,
+            MotionEvent.ACTION_DOWN,
+            screenX,
+            screenY,
+            0
+        ).apply {
+            source = InputDevice.SOURCE_TOUCHSCREEN
+        }
+        val upEvent = MotionEvent.obtain(
+            downTime,
+            downTime + 120,
+            MotionEvent.ACTION_UP,
+            screenX,
+            screenY,
+            0
+        ).apply {
+            source = InputDevice.SOURCE_TOUCHSCREEN
+        }
+
+        try {
+            instrumentation.sendPointerSync(downEvent)
+            instrumentation.sendPointerSync(upEvent)
+        } finally {
+            downEvent.recycle()
+            upEvent.recycle()
+        }
+
+        instrumentation.waitForIdleSync()
+        device.waitForIdle()
+    }
+
     private fun waitForWebView(
         scenario: ActivityScenario<MainActivity>,
         timeoutMs: Long
@@ -380,5 +503,11 @@ class MainActivityAvatarUploadInstrumentedTest {
         val avatarSrc: String = "",
         val uploadVersion: Int = 0,
         val signedInUser: String = ""
+    )
+
+    private data class TapTarget(
+        val visible: Boolean,
+        val xFraction: Float,
+        val yFraction: Float
     )
 }
