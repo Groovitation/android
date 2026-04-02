@@ -2,6 +2,7 @@ package io.blaha.groovitation
 
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Environment
@@ -48,9 +49,7 @@ class MainActivityAvatarUploadInstrumentedTest {
     fun avatarUploadUsesNativeFileChooserAndShowsUpdatedAvatar() {
         seedDeterministicDownload()
 
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            dismissStartupPermissionDialogs()
-
+        launchAvatarScenario().use { scenario ->
             val webView = waitForWebView(scenario, timeoutMs = 45_000)
             assertNotNull("Expected a WebView to be attached in MainActivity", webView)
 
@@ -104,6 +103,17 @@ class MainActivityAvatarUploadInstrumentedTest {
         }
     }
 
+    private fun launchAvatarScenario(): ActivityScenario<MainActivity> {
+        val intent = Intent(
+            instrumentation.targetContext,
+            MainActivity::class.java
+        ).apply {
+            putExtra(MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, true)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return ActivityScenario.launch(intent)
+    }
+
     private fun seedDeterministicDownload() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val resolver = context.contentResolver
@@ -151,22 +161,6 @@ class MainActivityAvatarUploadInstrumentedTest {
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
         bitmap.recycle()
         return output.toByteArray()
-    }
-
-    private fun dismissStartupPermissionDialogs(timeoutMs: Long = 8_000) {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            val button = findAnyButton(
-                "Don't allow",
-                "Don’t allow",
-                "Deny",
-                "Not now",
-                "Cancel"
-            ) ?: break
-            button.click()
-            device.waitForIdle()
-            Thread.sleep(500)
-        }
     }
 
     private fun selectSeededImageFromSystemPicker() {
