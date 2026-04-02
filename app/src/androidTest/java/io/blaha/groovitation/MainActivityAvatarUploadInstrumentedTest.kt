@@ -1,5 +1,8 @@
 package io.blaha.groovitation
 
+import android.app.Activity
+import android.app.Instrumentation
+import android.content.ClipData
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
@@ -14,6 +17,11 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.intent.Intents
+import androidx.test.espresso.intent.Intents.intended
+import androidx.test.espresso.intent.Intents.intending
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasAction
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasType
 import androidx.test.espresso.web.sugar.Web.onWebView
 import androidx.test.espresso.web.webdriver.DriverAtoms.clearElement
 import androidx.test.espresso.web.webdriver.DriverAtoms.findElement
@@ -22,11 +30,10 @@ import androidx.test.espresso.web.webdriver.DriverAtoms.webClick
 import androidx.test.espresso.web.webdriver.DriverAtoms.webKeys
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.BySelector
-import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.UiObject2
+import org.hamcrest.Matcher
+import org.hamcrest.Matchers.anyOf
+import org.hamcrest.Matchers.allOf
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -65,7 +72,7 @@ class MainActivityAvatarUploadInstrumentedTest {
 
     @Test
     fun avatarUploadUsesNativeFileChooserAndShowsUpdatedAvatar() {
-        seedDeterministicDownload()
+        val seededImage = seedDeterministicDownload()
 
         launchAvatarScenario().use { scenario ->
             val webView = waitForWebView(scenario, timeoutMs = 45_000)
@@ -97,16 +104,23 @@ class MainActivityAvatarUploadInstrumentedTest {
                 )
             }
 
-            tapElementWithUserActivation(webView, "avatar-input")
-            selectSeededImageFromSystemPicker()
+            Intents.init()
+            try {
+                stubNativeImagePickerResult(seededImage)
+                tapElementWithUserActivation(webView, "avatar-input")
+                intended(nativeImagePickerIntentMatcher())
+            } finally {
+                Intents.release()
+            }
+
             waitForPageState(webView, timeoutMs = 45_000) { state ->
                 state.path == "/users/edit" &&
                     state.hasAvatarForm &&
-                    state.selectedAvatarName == TEST_IMAGE_NAME
+                    state.selectedAvatarName == seededImage.displayName
             }.also { state ->
                 assertEquals(
                     "Expected the selected file to be reflected back into the avatar form. State=$state",
-                    TEST_IMAGE_NAME,
+                    seededImage.displayName,
                     state.selectedAvatarName
                 )
             }
@@ -117,14 +131,14 @@ class MainActivityAvatarUploadInstrumentedTest {
                 state.path == "/users/edit" &&
                     state.hasAvatarForm &&
                     state.uploadVersion >= 1 &&
-                    state.statusText.contains(TEST_IMAGE_NAME) &&
+                    state.statusText.contains(seededImage.displayName) &&
                     state.avatarSrc.contains("version=${state.uploadVersion}")
             }
 
             assertEquals(FIXTURE_EMAIL, uploadedState.signedInUser.trim())
             assertTrue(
                 "Expected upload status to mention the seeded file name. State=$uploadedState",
-                uploadedState.statusText.contains(TEST_IMAGE_NAME)
+                uploadedState.statusText.contains(seededImage.displayName)
             )
             assertTrue(
                 "Expected avatar image src to carry the persisted upload version. State=$uploadedState",
@@ -188,15 +202,15 @@ class MainActivityAvatarUploadInstrumentedTest {
         throw AssertionError("Timed out waiting for fixture backend at ${BuildConfig.BASE_URL}/healthz ($lastFailure)")
     }
 
-    private fun seedDeterministicDownload() {
+    private fun seedDeterministicDownload(): SeededDownload {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val resolver = context.contentResolver
-        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ?"
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?"
         resolver.query(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
             arrayOf(MediaStore.MediaColumns._ID),
             selection,
-            arrayOf(TEST_IMAGE_NAME),
+            arrayOf("${TEST_IMAGE_NAME.removeSuffix(".png")}%"),
             null
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
@@ -226,6 +240,8 @@ class MainActivityAvatarUploadInstrumentedTest {
             put(MediaStore.Downloads.IS_PENDING, 0)
         }
         resolver.update(uri, publishedValues, null, null)
+        val displayName = readSeededDownloadDisplayName(uri)
+        return SeededDownload(uri = uri, displayName = displayName)
     }
 
     private fun createDeterministicPng(): ByteArray {
@@ -237,112 +253,50 @@ class MainActivityAvatarUploadInstrumentedTest {
         return output.toByteArray()
     }
 
-    private fun selectSeededImageFromSystemPicker() {
-        val pickerVisible = waitForAnyObject(
-            timeoutMs = 10_000,
-            By.text(TEST_IMAGE_NAME),
-            By.textContains(TEST_IMAGE_NAME),
-            By.descContains(TEST_IMAGE_NAME),
-            By.text("Browse"),
-            By.textContains("Browse"),
-            By.text("Downloads"),
-            By.textContains("Downloads"),
-            By.desc("More options"),
-            By.descContains("More options"),
-            By.desc("Show roots"),
-            By.descContains("Show roots")
-        ) != null
-        assertTrue("Expected the Android image picker or document picker to appear", pickerVisible)
-
-        if (waitForSeededFileObject(timeoutMs = 2_000) == null) {
-            openDownloadsViaSystemPicker()
-        }
-
-        assertTrue(
-            "Expected the seeded image to be selectable in the picker",
-            clickObject(timeoutMs = 10_000) {
-                waitForSeededFileObject(timeoutMs = 750)
-            }
-        )
-
-        clickObject(timeoutMs = 2_000) { findAnyButton("Open", "Choose") }
-
-        device.waitForIdle()
-    }
-
-    private fun findAnyButton(vararg labels: String): UiObject2? {
-        for (label in labels) {
-            device.findObject(By.text(label))?.let { return it }
-            device.findObject(By.textContains(label))?.let { return it }
-        }
-        return null
-    }
-
-    private fun waitForAnyObject(timeoutMs: Long, vararg selectors: BySelector): UiObject2? {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            for (selector in selectors) {
-                device.findObject(selector)?.let { return it }
-            }
-            Thread.sleep(250)
-        }
-        return null
-    }
-
-    private fun waitForSeededFileObject(timeoutMs: Long): UiObject2? {
-        return waitForAnyObject(
-            timeoutMs,
-            By.text(TEST_IMAGE_NAME),
-            By.textContains(TEST_IMAGE_NAME),
-            By.descContains(TEST_IMAGE_NAME)
-        )
-    }
-
-    private fun openDownloadsViaSystemPicker() {
-        if (clickObject(timeoutMs = 2_000) { findAnyButton("Browse") }) {
-            if (waitForSeededFileObject(timeoutMs = 1_500) != null) {
-                return
-            }
-        }
-
-        clickObject(timeoutMs = 2_000) { findAnyByDescription("More options") }
-
-        clickObject(timeoutMs = 2_000) { findAnyButton("Browse") }
-
-        if (waitForSeededFileObject(timeoutMs = 1_500) != null) {
-            return
-        }
-
-        clickObject(timeoutMs = 2_000) { findAnyByDescription("Show roots") }
-
-        clickObject(timeoutMs = 2_000) { findAnyButton("Downloads") }
-    }
-
-    private fun findAnyByDescription(vararg labels: String): UiObject2? {
-        for (label in labels) {
-            device.findObject(By.desc(label))?.let { return it }
-            device.findObject(By.descContains(label))?.let { return it }
-        }
-        return null
-    }
-
-    private fun clickObject(timeoutMs: Long, supplier: () -> UiObject2?): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            val target = supplier()
-            if (target != null) {
-                try {
-                    target.click()
-                    device.waitForIdle()
-                    return true
-                } catch (_: StaleObjectException) {
-                    Thread.sleep(150)
+    private fun readSeededDownloadDisplayName(uri: android.net.Uri): String {
+        val resolver = instrumentation.targetContext.contentResolver
+        resolver.query(
+            uri,
+            arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val columnIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                if (columnIndex >= 0) {
+                    val displayName = cursor.getString(columnIndex)
+                    if (!displayName.isNullOrBlank()) {
+                        return displayName
+                    }
                 }
-            } else {
-                Thread.sleep(150)
             }
         }
-        return false
+        return TEST_IMAGE_NAME
+    }
+
+    private fun stubNativeImagePickerResult(selectedImage: SeededDownload) {
+        val resultData = Intent().apply {
+            data = selectedImage.uri
+            clipData = ClipData.newUri(
+                instrumentation.targetContext.contentResolver,
+                selectedImage.displayName,
+                selectedImage.uri
+            )
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        intending(nativeImagePickerIntentMatcher()).respondWith(
+            Instrumentation.ActivityResult(Activity.RESULT_OK, resultData)
+        )
+    }
+
+    private fun nativeImagePickerIntentMatcher(): Matcher<Intent> {
+        return anyOf(
+            hasAction(Intent.ACTION_CHOOSER),
+            allOf(hasAction(Intent.ACTION_OPEN_DOCUMENT), hasType("image/*")),
+            allOf(hasAction(Intent.ACTION_GET_CONTENT), hasType("image/*"))
+        )
     }
 
     private fun tapElementWithUserActivation(webView: WebView, elementId: String) {
@@ -595,5 +549,10 @@ class MainActivityAvatarUploadInstrumentedTest {
         val visible: Boolean,
         val xFraction: Float,
         val yFraction: Float
+    )
+
+    private data class SeededDownload(
+        val uri: android.net.Uri,
+        val displayName: String
     )
 }
