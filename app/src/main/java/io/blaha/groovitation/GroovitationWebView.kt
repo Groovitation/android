@@ -38,7 +38,8 @@ class GroovitationWebView @JvmOverloads constructor(
         private const val AVATAR_PROBE_BYTES = 32
         internal const val AVATAR_CONVERSION_PREFIX = "avatar-upload-"
         private const val AVATAR_CONVERSION_STALE_MS = 24L * 60L * 60L * 1000L
-        private const val MAX_CONVERSION_DIMENSION = 4096
+        private const val NORMALIZED_AVATAR_MAX_DIMENSION = 2048
+        private const val NORMALIZED_AVATAR_JPEG_QUALITY = 82
         private val SUPPORTED_AVATAR_MIME_TYPES = setOf(
             "image/jpeg",
             "image/jpg",
@@ -116,6 +117,25 @@ class GroovitationWebView @JvmOverloads constructor(
             if (displayName.isNullOrBlank()) return false
             val lowercaseName = displayName.lowercase()
             return HEIF_FILE_EXTENSIONS.any(lowercaseName::endsWith)
+        }
+
+        internal fun isCameraCaptureDisplayName(displayName: String?): Boolean {
+            if (displayName.isNullOrBlank()) return false
+            return displayName.startsWith(MainActivity.IMAGE_INTAKE_CAMERA_PREFIX, ignoreCase = true)
+        }
+
+        internal fun shouldNormalizeAvatarForUpload(
+            mimeType: String?,
+            headerBytes: ByteArray? = null,
+            displayName: String? = null,
+            sourceLabel: String? = null
+        ): Boolean {
+            val sniffedMimeType = sniffAvatarMimeType(headerBytes)
+            return isHeifMimeType(sniffedMimeType) ||
+                isHeifMimeType(mimeType) ||
+                isHeifDisplayName(displayName) ||
+                isCameraCaptureDisplayName(displayName) ||
+                sourceLabel?.contains(MainActivity.IMAGE_INTAKE_CAMERA_PREFIX, ignoreCase = true) == true
         }
 
         internal fun isAllowedAvatarPayload(
@@ -292,21 +312,37 @@ class GroovitationWebView @JvmOverloads constructor(
             val headerBytes = readAvatarHeader(originalUri)
             val sniffedMime = sniffAvatarMimeType(headerBytes)
             val explicitMime = runCatching { appContext.contentResolver.getType(originalUri) }.getOrNull()
-            val candidateNeedsConversion = isHeifMimeType(sniffedMime) ||
+            val sourceLabel = originalUri.toString()
+            val isRequiredHeifRewrite = isHeifMimeType(sniffedMime) ||
                 isHeifMimeType(explicitMime) ||
                 isHeifDisplayName(displayName)
+            val candidateNeedsNormalization = shouldNormalizeAvatarForUpload(
+                mimeType = explicitMime,
+                headerBytes = headerBytes,
+                displayName = displayName,
+                sourceLabel = sourceLabel
+            )
 
-            if (candidateNeedsConversion) {
+            if (candidateNeedsNormalization) {
                 cleanupConvertedAvatarCache()
-                val convertedUri = convertHeifToJpeg(originalUri, displayName) ?: return null
-                val convertedHeader = readAvatarHeader(convertedUri)
-                return AvatarCandidate(
-                    uri = convertedUri,
-                    mimeType = sniffAvatarMimeType(convertedHeader) ?: "image/jpeg",
-                    sizeBytes = readContentSize(convertedUri),
-                    headerBytes = convertedHeader,
-                    displayName = readDisplayName(convertedUri)
+                Log.d(
+                    TAG,
+                    "Normalizing avatar upload uri=$originalUri mime=$explicitMime sniffed=$sniffedMime displayName=$displayName"
                 )
+                val convertedUri = normalizeAvatarToJpeg(originalUri, displayName)
+                if (convertedUri == null && isRequiredHeifRewrite) {
+                    return null
+                }
+                if (convertedUri != null) {
+                    val convertedHeader = readAvatarHeader(convertedUri)
+                    return AvatarCandidate(
+                        uri = convertedUri,
+                        mimeType = sniffAvatarMimeType(convertedHeader) ?: "image/jpeg",
+                        sizeBytes = readContentSize(convertedUri),
+                        headerBytes = convertedHeader,
+                        displayName = readDisplayName(convertedUri)
+                    )
+                }
             }
 
             return AvatarCandidate(
@@ -318,15 +354,15 @@ class GroovitationWebView @JvmOverloads constructor(
             )
         }
 
-        private fun convertHeifToJpeg(uri: Uri, originalDisplayName: String?): Uri? {
+        private fun normalizeAvatarToJpeg(uri: Uri, originalDisplayName: String?): Uri? {
             return runCatching {
                 val source = ImageDecoder.createSource(appContext.contentResolver, uri)
                 val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
                     decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                     val maxDimension = maxOf(info.size.width, info.size.height)
-                    if (maxDimension > MAX_CONVERSION_DIMENSION) {
+                    if (maxDimension > NORMALIZED_AVATAR_MAX_DIMENSION) {
                         val sampleSize = ceil(
-                            maxDimension.toDouble() / MAX_CONVERSION_DIMENSION.toDouble()
+                            maxDimension.toDouble() / NORMALIZED_AVATAR_MAX_DIMENSION.toDouble()
                         ).toInt()
                         decoder.setTargetSampleSize(sampleSize.coerceAtLeast(1))
                     }
@@ -336,7 +372,7 @@ class GroovitationWebView @JvmOverloads constructor(
                     buildConvertedAvatarFileName(originalDisplayName)
                 )
                 cacheFile.outputStream().use { output ->
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, NORMALIZED_AVATAR_JPEG_QUALITY, output)
                 }
                 bitmap.recycle()
                 FileProvider.getUriForFile(
@@ -345,7 +381,7 @@ class GroovitationWebView @JvmOverloads constructor(
                     cacheFile
                 )
             }.onFailure {
-                Log.w(TAG, "Failed to convert HEIF avatar uri=$uri", it)
+                Log.w(TAG, "Failed to normalize avatar uri=$uri", it)
             }.getOrNull()
         }
 

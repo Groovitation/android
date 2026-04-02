@@ -69,4 +69,41 @@ class GroovitationWebViewAvatarUploadGuardTest {
         assertFalse(GroovitationWebView.isHeifMimeType("image/jpeg"))
         assertFalse(GroovitationWebView.isHeifDisplayName("profile.jpg"))
     }
+
+    @Test
+    fun normalizesNativeCameraCapturesBeforeUpload() {
+        assertTrue(GroovitationWebView.isCameraCaptureDisplayName("image-intake-camera-123.jpg"))
+        assertTrue(
+            GroovitationWebView.shouldNormalizeAvatarForUpload(
+                mimeType = "image/jpeg",
+                displayName = "image-intake-camera-123.jpg"
+            )
+        )
+    }
+
+    @Test
+    fun normalizesHeicUploadsBeforeValidation() {
+        val heicHeader = byteArrayOf(0x00, 0x00, 0x00, 0x18) +
+            "ftypheic".toByteArray(StandardCharsets.US_ASCII)
+        assertTrue(
+            GroovitationWebView.shouldNormalizeAvatarForUpload(
+                mimeType = "image/heic",
+                headerBytes = heicHeader,
+                displayName = "profile.heic"
+            )
+        )
+    }
+
+    @Test
+    fun leavesOrdinaryLibraryJpegUnchanged() {
+        val jpegHeader = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0x00.toByte())
+        assertFalse(
+            GroovitationWebView.shouldNormalizeAvatarForUpload(
+                mimeType = "image/jpeg",
+                headerBytes = jpegHeader,
+                displayName = "portrait.jpg",
+                sourceLabel = "content://media/external/images/media/42"
+            )
+        )
+    }
 }

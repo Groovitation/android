@@ -56,7 +56,7 @@ class MainActivity : HotwireActivity() {
         private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
         private const val WELCOME_NOTIFICATION_ID = 1001
-        private const val IMAGE_INTAKE_CAMERA_PREFIX = "image-intake-camera-"
+        internal const val IMAGE_INTAKE_CAMERA_PREFIX = "image-intake-camera-"
         private const val IMAGE_INTAKE_CAMERA_SUFFIX = ".jpg"
         private const val IMAGE_INTAKE_STALE_MS = 24L * 60L * 60L * 1000L
         internal const val EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN =
