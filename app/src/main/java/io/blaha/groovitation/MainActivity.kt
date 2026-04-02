@@ -95,6 +95,7 @@ class MainActivity : HotwireActivity() {
     private val scope = CoroutineScope(Dispatchers.IO)
     private var activeWebFragment: GroovitationWebFragment? = null
     private var pendingRouteUrl: String? = null
+    private var startupUrlOverride: String? = null
     private lateinit var foregroundLocationManager: io.blaha.groovitation.services.ForegroundLocationManager
     private lateinit var modalAwareBackCallback: OnBackPressedCallback
     private var lastBottomNavPathForTest: String? = null
@@ -161,6 +162,7 @@ class MainActivity : HotwireActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        startupUrlOverride = resolveStartupUrlOverride(intent)
         setContentView(R.layout.activity_main)
 
         // Pre-cache HTTP Basic Auth credentials so the first WebView request
@@ -307,7 +309,7 @@ class MainActivity : HotwireActivity() {
         return listOf(
             NavigatorConfiguration(
                 name = "main",
-                startLocation = "${BuildConfig.BASE_URL}/",
+                startLocation = startupUrlOverride ?: "${BuildConfig.BASE_URL}/",
                 navigatorHostId = R.id.main_nav_host
             )
         )
@@ -323,7 +325,11 @@ class MainActivity : HotwireActivity() {
             if (!url.isNullOrEmpty()) {
                 Log.d(TAG, "Deep link URL from notification: $url")
                 updateBottomNavForUrl(url)
-                routeUrlWhenReady(url)
+                if (url == startupUrlOverride && activeWebFragment == null) {
+                    Log.d(TAG, "Intent URL already selected as start location, skipping duplicate deferred route")
+                } else {
+                    routeUrlWhenReady(url)
+                }
             }
 
             it.data?.let { uri ->
@@ -440,6 +446,12 @@ class MainActivity : HotwireActivity() {
 
         pendingRouteUrl = null
         navigator.route(url)
+    }
+
+    private fun resolveStartupUrlOverride(intent: Intent?): String? {
+        if (!BuildConfig.DEBUG) return null
+        if (intent?.getBooleanExtra(EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, false) != true) return null
+        return intent.getStringExtra("url")?.takeIf { it.isNotBlank() }
     }
 
     private fun flushPendingRouteUrl() {

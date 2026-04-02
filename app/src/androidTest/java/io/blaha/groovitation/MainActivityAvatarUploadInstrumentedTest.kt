@@ -24,6 +24,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import org.json.JSONObject
@@ -257,12 +258,14 @@ class MainActivityAvatarUploadInstrumentedTest {
             openDownloadsViaSystemPicker()
         }
 
-        val target = waitForSeededFileObject(timeoutMs = 10_000)
-        assertNotNull("Expected the seeded image to be selectable in the picker", target)
-        target!!.click()
+        assertTrue(
+            "Expected the seeded image to be selectable in the picker",
+            clickObject(timeoutMs = 10_000) {
+                waitForSeededFileObject(timeoutMs = 750)
+            }
+        )
 
-        val confirmButton = findAnyButton("Open", "Choose")
-        confirmButton?.click()
+        clickObject(timeoutMs = 2_000) { findAnyButton("Open", "Choose") }
 
         device.waitForIdle()
     }
@@ -296,29 +299,23 @@ class MainActivityAvatarUploadInstrumentedTest {
     }
 
     private fun openDownloadsViaSystemPicker() {
-        findAnyButton("Browse")?.let { browseButton ->
-            browseButton.click()
-            device.waitForIdle()
+        if (clickObject(timeoutMs = 2_000) { findAnyButton("Browse") }) {
             if (waitForSeededFileObject(timeoutMs = 1_500) != null) {
                 return
             }
         }
 
-        findAnyByDescription("More options")?.click()
-        device.waitForIdle()
+        clickObject(timeoutMs = 2_000) { findAnyByDescription("More options") }
 
-        findAnyButton("Browse")?.click()
-        device.waitForIdle()
+        clickObject(timeoutMs = 2_000) { findAnyButton("Browse") }
 
         if (waitForSeededFileObject(timeoutMs = 1_500) != null) {
             return
         }
 
-        findAnyByDescription("Show roots")?.click()
-        device.waitForIdle()
+        clickObject(timeoutMs = 2_000) { findAnyByDescription("Show roots") }
 
-        findAnyButton("Downloads")?.click()
-        device.waitForIdle()
+        clickObject(timeoutMs = 2_000) { findAnyButton("Downloads") }
     }
 
     private fun findAnyByDescription(vararg labels: String): UiObject2? {
@@ -327,6 +324,25 @@ class MainActivityAvatarUploadInstrumentedTest {
             device.findObject(By.descContains(label))?.let { return it }
         }
         return null
+    }
+
+    private fun clickObject(timeoutMs: Long, supplier: () -> UiObject2?): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val target = supplier()
+            if (target != null) {
+                try {
+                    target.click()
+                    device.waitForIdle()
+                    return true
+                } catch (_: StaleObjectException) {
+                    Thread.sleep(150)
+                }
+            } else {
+                Thread.sleep(150)
+            }
+        }
+        return false
     }
 
     private fun tapElementWithUserActivation(webView: WebView, elementId: String) {
