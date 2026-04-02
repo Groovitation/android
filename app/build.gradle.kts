@@ -28,6 +28,7 @@ android {
         versionName = "1.0.110"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
 
         // Hotwire Native configuration (BASE_URL set by product flavor)
         buildConfigField("String", "USER_AGENT_EXTENSION", "\"Groovitation Android/${versionName} Hotwire Native Android/1.2.0\"")
@@ -79,6 +80,7 @@ android {
     }
 
     testOptions {
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
         unitTests.isIncludeAndroidResources = true
     }
 }
@@ -144,4 +146,5 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation("androidx.test.espresso:espresso-web:3.5.1")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestUtil("androidx.test:orchestrator:1.5.0")
 }
