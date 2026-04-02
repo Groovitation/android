@@ -164,12 +164,13 @@ emulator-smoke-test:
       rm -f "${AVD_DIR}/"*.qcow2 2>/dev/null || true
       rm -f "${AVD_DIR}/quickbootChoice.ini" "${AVD_DIR}/emulator-user.ini" "${AVD_DIR}/read-snapshot.txt" 2>/dev/null || true
       rm -rf "${AVD_DIR}/snapshots/default_boot" 2>/dev/null || true
-    # Cold boot emulator (~30s, reliable; snapshot loading is fragile)
+    # Cold boot emulator with a read-only overlay so it can coexist with
+    # root/groovitation's 5554 lane on the same shared ci-api35 AVD.
     - |
       echo "Booting emulator (cold boot) on port ${EMU_PORT}..."
       emulator @ci-api35 -port "${EMU_PORT}" \
         -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
-        -no-snapshot-load -no-snapshot-save > /tmp/emulator-${EMU_PORT}.log 2>&1 &
+        -no-snapshot-load -no-snapshot-save -read-only > /tmp/emulator-${EMU_PORT}.log 2>&1 &
       EMULATOR_PID=$!
       echo "Started emulator PID=${EMULATOR_PID} on port ${EMU_PORT}"
       echo "${EMULATOR_PID}" > /tmp/emulator-${EMU_PORT}.pid
