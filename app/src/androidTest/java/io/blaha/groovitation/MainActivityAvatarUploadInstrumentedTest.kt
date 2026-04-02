@@ -88,7 +88,19 @@ class MainActivityAvatarUploadInstrumentedTest {
 
             tapElementWithUserActivation(webView, "avatar-input")
             selectSeededImageFromSystemPicker()
-            onWebView().withElement(findElement(Locator.ID, "avatar-save")).perform(webClick())
+            waitForPageState(webView, timeoutMs = 45_000) { state ->
+                state.path == "/users/edit" &&
+                    state.hasAvatarForm &&
+                    state.selectedAvatarName == TEST_IMAGE_NAME
+            }.also { state ->
+                assertEquals(
+                    "Expected the selected file to be reflected back into the avatar form. State=$state",
+                    TEST_IMAGE_NAME,
+                    state.selectedAvatarName
+                )
+            }
+
+            tapElementWithUserActivation(webView, "avatar-save")
 
             val uploadedState = waitForPageState(webView, timeoutMs = 45_000) { state ->
                 state.path == "/users/edit" &&
@@ -460,6 +472,10 @@ class MainActivityAvatarUploadInstrumentedTest {
                 var avatarImage = document.getElementById('avatar-image');
                 var avatarStatus = document.getElementById('avatar-status');
                 var user = document.getElementById('signed-in-user');
+                var avatarInput = document.getElementById('avatar-input');
+                var selectedFile = avatarInput && avatarInput.files && avatarInput.files.length > 0
+                  ? avatarInput.files[0].name
+                  : '';
                 return JSON.stringify({
                   path: location.pathname,
                   readyState: document.readyState,
@@ -468,7 +484,8 @@ class MainActivityAvatarUploadInstrumentedTest {
                   statusText: avatarStatus ? String(avatarStatus.textContent || '') : '',
                   avatarSrc: avatarImage ? String(avatarImage.getAttribute('src') || '') : '',
                   uploadVersion: fixture.version || 0,
-                  signedInUser: user ? String(user.textContent || '') : ''
+                  signedInUser: user ? String(user.textContent || '') : '',
+                  selectedAvatarName: selectedFile
                 });
               } catch (e) {
                 return JSON.stringify({
@@ -479,7 +496,8 @@ class MainActivityAvatarUploadInstrumentedTest {
                   statusText: String(e),
                   avatarSrc: '',
                   uploadVersion: 0,
-                  signedInUser: ''
+                  signedInUser: '',
+                  selectedAvatarName: ''
                 });
               }
             })();
@@ -505,7 +523,8 @@ class MainActivityAvatarUploadInstrumentedTest {
             statusText = payload.optString("statusText", ""),
             avatarSrc = payload.optString("avatarSrc", ""),
             uploadVersion = payload.optInt("uploadVersion", 0),
-            signedInUser = payload.optString("signedInUser", "")
+            signedInUser = payload.optString("signedInUser", ""),
+            selectedAvatarName = payload.optString("selectedAvatarName", "")
         )
     }
 
@@ -543,7 +562,8 @@ class MainActivityAvatarUploadInstrumentedTest {
         val statusText: String = "",
         val avatarSrc: String = "",
         val uploadVersion: Int = 0,
-        val signedInUser: String = ""
+        val signedInUser: String = "",
+        val selectedAvatarName: String = ""
     )
 
     private data class TapTarget(

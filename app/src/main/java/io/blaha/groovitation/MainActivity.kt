@@ -425,6 +425,12 @@ class MainActivity : HotwireActivity() {
 
     private fun routeUrlWhenReady(url: String) {
         lastRoutedUrlForTest = url
+        if (activeWebFragment == null) {
+            Log.d(TAG, "Web fragment not ready yet, deferring route to $url")
+            pendingRouteUrl = url
+            return
+        }
+
         val navigator = delegate.currentNavigator
         if (navigator == null) {
             Log.d(TAG, "Navigator not ready yet, deferring route to $url")
