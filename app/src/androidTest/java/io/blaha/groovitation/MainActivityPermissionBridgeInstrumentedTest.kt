@@ -267,15 +267,36 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 found = findWebView(activity.window.decorView.rootView)
             }
             if (found != null) {
-                scenario.onActivity { activity ->
-                    activity.handleIntentForTest(Intent().putExtra("url", probeUrl))
-                }
-                instrumentation.waitForIdleSync()
-                return found!!
+                val webView = found!!
+                ensureProbePageLoaded(scenario, webView, timeoutMs = 20_000)
+                return webView
             }
             Thread.sleep(250)
         }
         throw AssertionError("Timed out waiting for WebView")
+    }
+
+    private fun ensureProbePageLoaded(
+        scenario: ActivityScenario<MainActivity>,
+        webView: WebView,
+        timeoutMs: Long
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastProbe = evaluateProbe(webView)
+        while (System.currentTimeMillis() < deadline) {
+            if (lastProbe.path == "/test/permission-bridge") {
+                return
+            }
+            scenario.onActivity { activity ->
+                activity.handleIntentForTest(
+                    Intent().putExtra("url", "$probeUrl?ci_probe=${System.nanoTime()}")
+                )
+            }
+            instrumentation.waitForIdleSync()
+            Thread.sleep(250)
+            lastProbe = evaluateProbe(webView)
+        }
+        throw AssertionError("Timed out routing to permission bridge. Last probe=$lastProbe")
     }
 
     private fun waitForProbe(

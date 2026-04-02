@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
+import android.provider.OpenableColumns
 import android.util.AttributeSet
 import android.util.Log
 import android.widget.Toast
@@ -37,10 +38,24 @@ class GroovitationWebView @JvmOverloads constructor(
             "image/webp",
             "image/avif"
         )
+        private val SUPPORTED_AVATAR_FILE_EXTENSIONS = setOf(
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".webp",
+            ".avif"
+        )
 
         internal fun isSupportedAvatarMimeType(mimeType: String?): Boolean {
             if (mimeType.isNullOrBlank()) return false
             return SUPPORTED_AVATAR_MIME_TYPES.contains(mimeType.lowercase())
+        }
+
+        internal fun isSupportedAvatarDisplayName(displayName: String?): Boolean {
+            if (displayName.isNullOrBlank()) return false
+            val lowercaseName = displayName.lowercase()
+            return SUPPORTED_AVATAR_FILE_EXTENSIONS.any(lowercaseName::endsWith)
         }
 
         private fun ascii(bytes: ByteArray, start: Int, end: Int): String {
@@ -77,14 +92,16 @@ class GroovitationWebView @JvmOverloads constructor(
         internal fun isAllowedAvatarPayload(
             mimeType: String?,
             sizeBytes: Long,
-            headerBytes: ByteArray? = null
+            headerBytes: ByteArray? = null,
+            displayName: String? = null
         ): Boolean {
             if (sizeBytes >= 0L && sizeBytes > AVATAR_UPLOAD_MAX_BYTES) return false
 
             val sniffedMimeType = sniffAvatarMimeType(headerBytes)
             if (headerBytes != null && headerBytes.isNotEmpty() && sniffedMimeType == null) return false
 
-            return isSupportedAvatarMimeType(sniffedMimeType ?: mimeType)
+            return isSupportedAvatarMimeType(sniffedMimeType ?: mimeType) ||
+                isSupportedAvatarDisplayName(displayName)
         }
     }
 
@@ -189,11 +206,12 @@ class GroovitationWebView @JvmOverloads constructor(
                     val mimeType = runCatching { appContext.contentResolver.getType(uri) }.getOrNull()
                     val sizeBytes = readContentSize(uri)
                     val headerBytes = readAvatarHeader(uri)
-                    val allowed = isAllowedAvatarPayload(mimeType, sizeBytes, headerBytes)
+                    val displayName = readDisplayName(uri)
+                    val allowed = isAllowedAvatarPayload(mimeType, sizeBytes, headerBytes, displayName)
                     if (!allowed) {
                         Log.w(
                             TAG,
-                            "Rejecting avatar upload uri=$uri mime=$mimeType sniffed=${sniffAvatarMimeType(headerBytes)} sizeBytes=$sizeBytes"
+                            "Rejecting avatar upload uri=$uri mime=$mimeType sniffed=${sniffAvatarMimeType(headerBytes)} sizeBytes=$sizeBytes displayName=$displayName"
                         )
                     }
                     allowed
@@ -261,6 +279,23 @@ class GroovitationWebView @JvmOverloads constructor(
                     val buffer = ByteArray(AVATAR_PROBE_BYTES)
                     val read = input.read(buffer)
                     if (read <= 0) null else buffer.copyOf(read)
+                }
+            }.getOrNull()
+        }
+
+        private fun readDisplayName(uri: android.net.Uri): String? {
+            return runCatching {
+                appContext.contentResolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val columnIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (columnIndex < 0) return@use null
+                    cursor.getString(columnIndex)
                 }
             }.getOrNull()
         }
