@@ -9,6 +9,8 @@ import android.os.Environment
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.MotionEvent
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -28,9 +30,11 @@ import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.UiScrollable
 import androidx.test.uiautomator.UiSelector
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
@@ -51,6 +55,16 @@ class MainActivityAvatarUploadInstrumentedTest {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device = UiDevice.getInstance(instrumentation)
+
+    @Before
+    fun setUp() {
+        clearFixtureState()
+    }
+
+    @After
+    fun tearDown() {
+        clearFixtureState()
+    }
 
     @Test
     fun avatarUploadUsesNativeFileChooserAndShowsUpdatedAvatar() {
@@ -129,9 +143,24 @@ class MainActivityAvatarUploadInstrumentedTest {
             MainActivity::class.java
         ).apply {
             putExtra(MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, true)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         return ActivityScenario.launch(intent)
+    }
+
+    private fun clearFixtureState() {
+        val targetContext = instrumentation.targetContext
+        targetContext.getSharedPreferences("groovitation_prefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+
+        instrumentation.runOnMainSync {
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.removeAllCookies(null)
+            cookieManager.flush()
+            WebStorage.getInstance().deleteAllData()
+        }
     }
 
     private fun waitForFixtureBackend(timeoutMs: Long) {
