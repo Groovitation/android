@@ -534,6 +534,10 @@ class MainActivity : HotwireActivity() {
     fun currentNotificationPermissionState(): String = notificationPermissionState()
 
     private fun notificationPermissionState(): String {
+        if (BuildConfig.DEBUG) {
+            PermissionBridgeTestHooks.overrideNotificationPermissionState?.let { return it }
+        }
+
         val enabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
@@ -654,6 +658,10 @@ class MainActivity : HotwireActivity() {
     }
 
     fun hasLocationPermission(): Boolean {
+        if (BuildConfig.DEBUG) {
+            PermissionBridgeTestHooks.overrideLocationPermissionGranted?.let { return it }
+        }
+
         return ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.ACCESS_FINE_LOCATION
