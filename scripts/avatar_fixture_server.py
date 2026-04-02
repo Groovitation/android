@@ -234,6 +234,106 @@ def render_account_page(state: dict[str, object]) -> bytes:
 """.encode("utf-8")
 
 
+def render_permission_bridge_page() -> bytes:
+    return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Groovitation Permission Bridge Fixture</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #f3f7ff;
+        color: #1d1d1d;
+      }
+      main {
+        max-width: 560px;
+        margin: 24px auto;
+        background: white;
+        border-radius: 20px;
+        padding: 24px;
+        box-shadow: 0 16px 40px rgba(18, 87, 214, 0.12);
+      }
+      code {
+        display: inline-block;
+        padding: 2px 6px;
+        background: #eef3ff;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Permission Bridge Fixture</h1>
+      <p>This fixture waits for native bridge updates and records them into
+      <code>window.__permissionBridgeProbe</code>.</p>
+    </main>
+    <script>
+      (function() {
+        var probe = window.__permissionBridgeProbe = {
+          ready: false,
+          notificationState: 'missing',
+          notificationEventCount: 0,
+          locationState: 'missing',
+          locationEventCount: 0,
+          nativeReadCount: 0,
+          lastSource: ''
+        };
+
+        function updateFromNative(source) {
+          if (!window.GroovitationNative) {
+            return false;
+          }
+          probe.notificationState = String(
+            window.GroovitationNative.notificationPermissionState() || 'missing'
+          );
+          probe.locationState = window.GroovitationNative.hasLocationPermission()
+            ? 'granted'
+            : 'denied';
+          probe.nativeReadCount += 1;
+          probe.lastSource = source;
+          probe.ready = true;
+          return true;
+        }
+
+        window.addEventListener('groovitation:notification-permission', function(event) {
+          probe.notificationState = String(
+            event && event.detail && event.detail.state ? event.detail.state : 'missing'
+          );
+          probe.notificationEventCount += 1;
+          probe.lastSource = 'notification-event';
+          probe.ready = true;
+        });
+
+        window.addEventListener('groovitation:location-permission', function(event) {
+          probe.locationState = event && event.detail && event.detail.granted ? 'granted' : 'denied';
+          probe.locationEventCount += 1;
+          probe.lastSource = 'location-event';
+          probe.ready = true;
+        });
+
+        function primeBridge() {
+          if (updateFromNative('native-read')) {
+            return;
+          }
+          window.setTimeout(primeBridge, 100);
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', primeBridge, { once: true });
+        } else {
+          primeBridge();
+        }
+      })();
+    </script>
+  </body>
+</html>
+""".encode("utf-8")
+
+
 class FixtureHandler(BaseHTTPRequestHandler):
     server_version = "GroovitationAvatarFixture/1.0"
 
@@ -273,6 +373,14 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_bytes(
                 HTTPStatus.OK,
                 render_account_page(self.fixture_state.snapshot()),
+                content_type="text/html; charset=utf-8",
+            )
+            return
+
+        if path == "/test/permission-bridge":
+            self.send_bytes(
+                HTTPStatus.OK,
+                render_permission_bridge_page(),
                 content_type="text/html; charset=utf-8",
             )
             return

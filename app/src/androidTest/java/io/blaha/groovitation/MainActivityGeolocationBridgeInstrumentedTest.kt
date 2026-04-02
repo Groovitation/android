@@ -1,6 +1,7 @@
 package io.blaha.groovitation
 
 import android.Manifest
+import android.content.Intent
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -39,7 +40,7 @@ class MainActivityGeolocationBridgeInstrumentedTest {
             accuracyMeters = TEST_ACCURACY_METERS
         )
 
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        launchGeolocationScenario().use { scenario ->
             val webView = waitForWebView(scenario, timeoutMs = 45_000)
             assertNotNull("Expected a WebView in MainActivity for geolocation bridge test", webView)
 
@@ -81,6 +82,17 @@ class MainActivityGeolocationBridgeInstrumentedTest {
             assertEquals(TEST_LONGITUDE, locationProbe.getDouble("longitude"), 0.0001)
             assertEquals(TEST_ACCURACY_METERS.toDouble(), locationProbe.getDouble("accuracy"), 0.0001)
         }
+    }
+
+    private fun launchGeolocationScenario(): ActivityScenario<MainActivity> {
+        val intent = Intent(
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext,
+            MainActivity::class.java
+        ).apply {
+            putExtra(MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, true)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return ActivityScenario.launch(intent)
     }
 
     private fun waitForWebView(
