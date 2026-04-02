@@ -40,7 +40,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
         PermissionBridgeTestHooks.overrideNotificationPermissionState = "denied"
 
         launchProbePage().use { scenario ->
-            var webView = waitForWebView(scenario, timeoutMs = 45_000)
+            val webView = waitForWebView(scenario, timeoutMs = 45_000)
             val initialProbe = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -63,10 +63,10 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 }
             )
             assertEquals("granted", afterGrant.notificationState)
+        }
 
-            scenario.recreate()
-            instrumentation.waitForIdleSync()
-            webView = waitForWebView(scenario, timeoutMs = 45_000)
+        launchProbePage().use { scenario ->
+            val webView = waitForWebView(scenario, timeoutMs = 45_000)
             val relaunchedGranted = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -89,10 +89,10 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 }
             )
             assertEquals("denied", afterRevoke.notificationState)
+        }
 
-            scenario.recreate()
-            instrumentation.waitForIdleSync()
-            webView = waitForWebView(scenario, timeoutMs = 45_000)
+        launchProbePage().use { scenario ->
+            val webView = waitForWebView(scenario, timeoutMs = 45_000)
             val relaunchedDenied = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -110,7 +110,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
         PermissionBridgeTestHooks.overrideLocationPermissionGranted = false
 
         launchProbePage().use { scenario ->
-            var webView = waitForWebView(scenario, timeoutMs = 45_000)
+            val webView = waitForWebView(scenario, timeoutMs = 45_000)
             val initialProbe = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -133,10 +133,10 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 }
             )
             assertEquals("granted", afterGrant.locationState)
+        }
 
-            scenario.recreate()
-            instrumentation.waitForIdleSync()
-            webView = waitForWebView(scenario, timeoutMs = 45_000)
+        launchProbePage().use { scenario ->
+            val webView = waitForWebView(scenario, timeoutMs = 45_000)
             val relaunchedGranted = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -159,10 +159,10 @@ class MainActivityPermissionBridgeInstrumentedTest {
                 }
             )
             assertEquals("denied", afterRevoke.locationState)
+        }
 
-            scenario.recreate()
-            instrumentation.waitForIdleSync()
-            webView = waitForWebView(scenario, timeoutMs = 45_000)
+        launchProbePage().use { scenario ->
+            val webView = waitForWebView(scenario, timeoutMs = 45_000)
             val relaunchedDenied = waitForProbe(
                 webView = webView,
                 timeoutMs = 60_000
@@ -180,6 +180,7 @@ class MainActivityPermissionBridgeInstrumentedTest {
         val intent = Intent(targetContext, MainActivity::class.java).apply {
             putExtra("url", probeUrl)
             putExtra(MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, true)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return ActivityScenario.launch(intent)
     }
