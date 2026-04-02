@@ -110,7 +110,7 @@ class MainActivityAvatarUploadInstrumentedTest {
             Intents.init()
             try {
                 stubNativeImagePickerResult(seededImage)
-                tapElementWithUserActivation(webView, "avatar-picker-trigger")
+                tapElementWithUserActivation(webView, "avatar-picker-trigger", "avatar-input")
                 tapNativeAction(R.id.image_intake_choose_photos)
                 intended(photoPickerIntentMatcher())
             } finally {
@@ -179,7 +179,7 @@ class MainActivityAvatarUploadInstrumentedTest {
                 intending(hasAction(MediaStore.ACTION_IMAGE_CAPTURE)).respondWith(
                     Instrumentation.ActivityResult(Activity.RESULT_OK, null)
                 )
-                tapElementWithUserActivation(webView, "avatar-picker-trigger")
+                tapElementWithUserActivation(webView, "avatar-picker-trigger", "avatar-input")
                 tapNativeAction(R.id.image_intake_take_photo)
                 intended(hasAction(MediaStore.ACTION_IMAGE_CAPTURE))
             } finally {
@@ -346,25 +346,30 @@ class MainActivityAvatarUploadInstrumentedTest {
         device.waitForIdle()
     }
 
-    private fun tapElementWithUserActivation(webView: WebView, elementId: String) {
-        val target = waitForTapTarget(webView, elementId, timeoutMs = 10_000)
-        assertNotNull("Expected #$elementId to be visible in the WebView", target)
+    private fun tapElementWithUserActivation(webView: WebView, vararg elementIds: String) {
+        val target = waitForTapTarget(webView, elementIds, timeoutMs = 10_000)
+        assertNotNull(
+            "Expected one of ${elementIds.joinToString(prefix = "#", separator = ", #")} to be visible in the WebView",
+            target
+        )
         injectTouch(webView, target!!)
     }
 
     private fun waitForTapTarget(
         webView: WebView,
-        elementId: String,
+        elementIds: Array<out String>,
         timeoutMs: Long
     ): TapTarget? {
         val deadline = System.currentTimeMillis() + timeoutMs
         var lastTarget: TapTarget? = null
         while (System.currentTimeMillis() < deadline) {
-            val target = evaluateTapTarget(webView, elementId)
-            if (target != null) {
-                lastTarget = target
-                if (target.visible) {
-                    return target
+            elementIds.forEach { elementId ->
+                val target = evaluateTapTarget(webView, elementId)
+                if (target != null) {
+                    lastTarget = target
+                    if (target.visible) {
+                        return target
+                    }
                 }
             }
             Thread.sleep(250)
