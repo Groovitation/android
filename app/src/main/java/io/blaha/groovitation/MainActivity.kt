@@ -1,13 +1,11 @@
 package io.blaha.groovitation
 
 import android.Manifest
-import android.app.Activity
 import android.app.AlertDialog
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
@@ -15,8 +13,6 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.webkit.CookieManager
-import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -100,7 +96,6 @@ class MainActivity : HotwireActivity() {
     private var lastBottomNavPathForTest: String? = null
     private var lastNavUsedClearAll: Boolean = false
     private var lastRoutedUrlForTest: String? = null
-    private var pendingFileChooserCallback: ValueCallback<Array<Uri>>? = null
     private val nativeGoogleSignInCoordinator by lazy {
         NativeGoogleSignInCoordinator(
             googleIdTokenProvider = CredentialManagerGoogleIdTokenProvider(this),
@@ -148,14 +143,6 @@ class MainActivity : HotwireActivity() {
             Log.w(TAG, "Background location permission denied")
             showBackgroundLocationExplanation()
         }
-    }
-
-    private val fileChooserLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val callback = pendingFileChooserCallback ?: return@registerForActivityResult
-        pendingFileChooserCallback = null
-        callback.onReceiveValue(extractFileChooserUris(result.resultCode, result.data))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -548,54 +535,6 @@ class MainActivity : HotwireActivity() {
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ))
         }
-    }
-
-    fun launchImageChooser(
-        filePathCallback: ValueCallback<Array<Uri>>,
-        fileChooserParams: WebChromeClient.FileChooserParams?
-    ): Boolean {
-        pendingFileChooserCallback?.onReceiveValue(null)
-        pendingFileChooserCallback = filePathCallback
-
-        val chooserIntent = runCatching { fileChooserParams?.createIntent() }.getOrNull()
-            ?: Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "image/*"
-            }
-
-        chooserIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        chooserIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
-
-        return runCatching {
-            fileChooserLauncher.launch(chooserIntent)
-            true
-        }.getOrElse { error ->
-            Log.e(TAG, "Failed to launch image chooser", error)
-            pendingFileChooserCallback = null
-            filePathCallback.onReceiveValue(null)
-            false
-        }
-    }
-
-    private fun extractFileChooserUris(
-        resultCode: Int,
-        data: Intent?
-    ): Array<Uri>? {
-        val parsed = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
-        if (!parsed.isNullOrEmpty()) {
-            return parsed
-        }
-        if (resultCode != Activity.RESULT_OK) return null
-
-        val uris = linkedSetOf<Uri>()
-        data?.data?.let(uris::add)
-        val clipData = data?.clipData
-        if (clipData != null) {
-            for (index in 0 until clipData.itemCount) {
-                clipData.getItemAt(index)?.uri?.let(uris::add)
-            }
-        }
-        return uris.takeIf { it.isNotEmpty() }?.toTypedArray()
     }
 
     fun registerWebFragment(fragment: GroovitationWebFragment) {

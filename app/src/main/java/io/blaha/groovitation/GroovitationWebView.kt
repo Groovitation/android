@@ -2,7 +2,6 @@ package io.blaha.groovitation
 
 import android.Manifest
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.util.AttributeSet
 import android.util.Log
@@ -211,11 +210,6 @@ class GroovitationWebView @JvmOverloads constructor(
                 }
             }
 
-            val activity = webView?.context?.findMainActivity()
-            if (activity != null) {
-                return activity.launchImageChooser(guardedCallback, fileChooserParams)
-            }
-
             return delegate.onShowFileChooser(webView, guardedCallback, fileChooserParams)
         }
 
@@ -295,15 +289,6 @@ class GroovitationWebView @JvmOverloads constructor(
 
         override fun onCloseWindow(window: android.webkit.WebView?) {
             delegate.onCloseWindow(window)
-        }
-
-        private fun Context.findMainActivity(): MainActivity? {
-            var current: Context? = this
-            while (current is ContextWrapper) {
-                if (current is MainActivity) return current
-                current = current.baseContext
-            }
-            return null
         }
     }
 }
