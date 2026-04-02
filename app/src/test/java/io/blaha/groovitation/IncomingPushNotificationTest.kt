@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.google.firebase.messaging.RemoteMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -83,6 +84,37 @@ class IncomingPushNotificationTest {
         assertEquals(
             "${BuildConfig.BASE_URL}/map?push_ci=1",
             tapIntent.getStringExtra(IncomingPushNotification.EXTRA_URL)
+        )
+    }
+
+    @Test
+    fun notificationTestHooksCanFindAndTapMatchingNotification() {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val notificationManager = application.getSystemService(NotificationManager::class.java)
+        notificationManager.cancelAll()
+
+        val push = IncomingPushNotification(
+            title = "CI Push",
+            body = "Tap to open map",
+            deepLink = "/map?push_ci=1",
+            channel = GroovitationApplication.CHANNEL_DEFAULT,
+        )
+
+        IncomingPushNotificationNotifier(application).show(push, notificationId = 43)
+
+        assertTrue(
+            NotificationTestHooks.hasActiveNotification(application, "CI Push", "Tap to open map")
+        )
+        assertEquals(
+            "tapped",
+            NotificationTestHooks.tapActiveNotification(application, "CI Push", "Tap to open map")
+        )
+
+        val startedIntent = shadowOf(application).nextStartedActivity
+        assertEquals(MainActivity::class.java.name, startedIntent.component?.className)
+        assertEquals(
+            "${BuildConfig.BASE_URL}/map?push_ci=1",
+            startedIntent.getStringExtra(IncomingPushNotification.EXTRA_URL)
         )
     }
 }

@@ -1,6 +1,10 @@
 package io.blaha.groovitation
 
+import android.app.Notification
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.util.Log
 import org.json.JSONObject
 
 data class RecordedTokenRegistration(
@@ -27,6 +31,7 @@ data class RecordedTokenRegistration(
 }
 
 object NotificationTestHooks {
+    private const val TAG = "NotificationTestHooks"
     private const val PREFS_NAME = "notification_test_hooks"
     private const val KEY_CAPTURE_TOKEN_REGISTRATIONS = "capture_token_registrations"
     private const val KEY_FAKE_FCM_TOKEN = "fake_fcm_token"
@@ -83,8 +88,58 @@ object NotificationTestHooks {
         prefs(context).edit().clear().commit()
     }
 
+    fun hasActiveNotification(
+        context: Context,
+        expectedTitle: String?,
+        expectedBody: String?,
+    ): Boolean = findActiveNotification(context, expectedTitle, expectedBody) != null
+
+    fun tapActiveNotification(
+        context: Context,
+        expectedTitle: String?,
+        expectedBody: String?,
+    ): String {
+        val activeNotification = findActiveNotification(context, expectedTitle, expectedBody)
+            ?: return "missing"
+        val contentIntent = activeNotification.notification.contentIntent ?: return "no-pending-intent"
+        return try {
+            contentIntent.send()
+            "tapped"
+        } catch (e: PendingIntent.CanceledException) {
+            Log.w(TAG, "Notification PendingIntent was canceled", e)
+            "canceled"
+        }
+    }
+
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(
         PREFS_NAME,
         Context.MODE_PRIVATE
     )
+
+    private fun findActiveNotification(
+        context: Context,
+        expectedTitle: String?,
+        expectedBody: String?,
+    ) = (context.getSystemService(NotificationManager::class.java)?.activeNotifications ?: emptyArray())
+        .asSequence()
+        .filter { it.packageName == context.packageName }
+        .sortedByDescending { it.postTime }
+        .firstOrNull { notificationMatches(it.notification, expectedTitle, expectedBody) }
+
+    private fun notificationMatches(
+        notification: Notification,
+        expectedTitle: String?,
+        expectedBody: String?,
+    ): Boolean {
+        val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+        val body = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+
+        if (!expectedTitle.isNullOrBlank() && title != expectedTitle) {
+            return false
+        }
+        if (!expectedBody.isNullOrBlank() && body != expectedBody) {
+            return false
+        }
+        return true
+    }
 }

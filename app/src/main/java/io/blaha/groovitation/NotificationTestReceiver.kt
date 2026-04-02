@@ -17,12 +17,18 @@ class NotificationTestReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_CONFIGURE = "io.blaha.groovitation.TEST_NOTIFICATION_CONFIGURE"
+        const val ACTION_GET_ACTIVE_NOTIFICATION =
+            "io.blaha.groovitation.TEST_NOTIFICATION_GET_ACTIVE_NOTIFICATION"
         const val ACTION_GET_LAST_TOKEN_REGISTRATION =
             "io.blaha.groovitation.TEST_NOTIFICATION_GET_LAST_TOKEN_REGISTRATION"
         const val ACTION_SIMULATE_TOKEN_REFRESH =
             "io.blaha.groovitation.TEST_NOTIFICATION_SIMULATE_TOKEN_REFRESH"
+        const val ACTION_TAP_ACTIVE_NOTIFICATION =
+            "io.blaha.groovitation.TEST_NOTIFICATION_TAP_ACTIVE_NOTIFICATION"
 
         const val EXTRA_CAPTURE_TOKEN_REGISTRATIONS = "capture_token_registrations"
+        const val EXTRA_EXPECTED_BODY = "expected_body"
+        const val EXTRA_EXPECTED_TITLE = "expected_title"
         const val EXTRA_FAKE_FCM_TOKEN = "fake_fcm_token"
         const val EXTRA_SESSION_COOKIE_VALUE = "session_cookie_value"
         const val EXTRA_RESET_APP_STATE = "reset_app_state"
@@ -37,8 +43,10 @@ class NotificationTestReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             ACTION_CONFIGURE -> handleConfigure(context, intent)
+            ACTION_GET_ACTIVE_NOTIFICATION -> handleGetActiveNotification(context, intent)
             ACTION_GET_LAST_TOKEN_REGISTRATION -> handleGetLastRegistration(context)
             ACTION_SIMULATE_TOKEN_REFRESH -> handleSimulateTokenRefresh(context, intent)
+            ACTION_TAP_ACTIVE_NOTIFICATION -> handleTapActiveNotification(context, intent)
         }
     }
 
@@ -72,6 +80,15 @@ class NotificationTestReceiver : BroadcastReceiver() {
         setResultData(encoded)
     }
 
+    private fun handleGetActiveNotification(context: Context, intent: Intent) {
+        val present = NotificationTestHooks.hasActiveNotification(
+            context,
+            intent.getStringExtra(EXTRA_EXPECTED_TITLE),
+            intent.getStringExtra(EXTRA_EXPECTED_BODY)
+        )
+        setResultData(if (present) "present" else "missing")
+    }
+
     private fun handleSimulateTokenRefresh(context: Context, intent: Intent) {
         val token = intent.getStringExtra(EXTRA_REFRESH_TOKEN)
         if (token.isNullOrBlank()) {
@@ -85,6 +102,15 @@ class NotificationTestReceiver : BroadcastReceiver() {
             token = token
         )
         setResultData("refreshed")
+    }
+
+    private fun handleTapActiveNotification(context: Context, intent: Intent) {
+        val result = NotificationTestHooks.tapActiveNotification(
+            context,
+            intent.getStringExtra(EXTRA_EXPECTED_TITLE),
+            intent.getStringExtra(EXTRA_EXPECTED_BODY)
+        )
+        setResultData(result)
     }
 
     private fun resetAppState(context: Context) {

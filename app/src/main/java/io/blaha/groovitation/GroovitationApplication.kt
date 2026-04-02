@@ -36,8 +36,10 @@ class GroovitationApplication : Application() {
             NotificationTestReceiver(),
             IntentFilter().apply {
                 addAction(NotificationTestReceiver.ACTION_CONFIGURE)
+                addAction(NotificationTestReceiver.ACTION_GET_ACTIVE_NOTIFICATION)
                 addAction(NotificationTestReceiver.ACTION_GET_LAST_TOKEN_REGISTRATION)
                 addAction(NotificationTestReceiver.ACTION_SIMULATE_TOKEN_REFRESH)
+                addAction(NotificationTestReceiver.ACTION_TAP_ACTIVE_NOTIFICATION)
             },
             RECEIVER_EXPORTED
         )
