@@ -83,7 +83,7 @@ class MainActivityAvatarUploadInstrumentedTest {
                 )
             }
 
-            tapElementWithUserActivation(webView, "avatar-input")
+            tapElementWithUserActivation(webView, "avatar-input-label")
             selectSeededImageFromSystemPicker()
             onWebView().withElement(findElement(Locator.ID, "avatar-save")).perform(webClick())
 

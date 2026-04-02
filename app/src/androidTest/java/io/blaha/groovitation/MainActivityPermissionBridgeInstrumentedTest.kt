@@ -177,7 +177,9 @@ class MainActivityPermissionBridgeInstrumentedTest {
         val intent = Intent(targetContext, MainActivity::class.java).apply {
             putExtra("url", probeUrl)
             putExtra(MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, true)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // MainActivity is singleTop; clear the task so each relaunch assertion
+            // exercises a fresh navigator + WebView attachment cycle.
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         return ActivityScenario.launch(intent)
     }
