@@ -90,6 +90,7 @@ class MainActivity : HotwireActivity() {
     private val httpClient = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO)
     private var activeWebFragment: GroovitationWebFragment? = null
+    private var pendingRouteUrl: String? = null
     private lateinit var foregroundLocationManager: io.blaha.groovitation.services.ForegroundLocationManager
     private lateinit var modalAwareBackCallback: OnBackPressedCallback
     private var lastBottomNavPathForTest: String? = null
@@ -309,8 +310,7 @@ class MainActivity : HotwireActivity() {
             if (!url.isNullOrEmpty()) {
                 Log.d(TAG, "Deep link URL from notification: $url")
                 updateBottomNavForUrl(url)
-                // Navigate the WebView to this URL
-                routeUrl(url)
+                routeUrlWhenReady(url)
             }
 
             it.data?.let { uri ->
@@ -321,13 +321,13 @@ class MainActivity : HotwireActivity() {
                     if (token != null) {
                         Log.d(TAG, "OAuth callback received, authenticating in WebView")
                         val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=$token&redirect=$redirect&platform=android"
-                        routeUrl(authUrl)
+                        routeUrlWhenReady(authUrl)
                     }
                 } else if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
                     updateBottomNavForPath(path)
-                    routeUrl(uri.toString())
+                    routeUrlWhenReady(uri.toString())
                 }
             }
         }
@@ -388,6 +388,8 @@ class MainActivity : HotwireActivity() {
 
     internal fun lastRoutedUrlForTest(): String? = lastRoutedUrlForTest
 
+    internal fun pendingRouteUrlForTest(): String? = pendingRouteUrl
+
     internal fun bottomNavPathForItemForTest(itemId: Int): String? = bottomNavPathForItem(itemId)
 
     internal fun handleIntentForTest(intent: Intent) {
@@ -406,6 +408,27 @@ class MainActivity : HotwireActivity() {
     private fun routeUrl(url: String) {
         lastRoutedUrlForTest = url
         delegate.currentNavigator?.route(url)
+    }
+
+    private fun routeUrlWhenReady(url: String) {
+        lastRoutedUrlForTest = url
+        val navigator = delegate.currentNavigator
+        if (navigator == null) {
+            Log.d(TAG, "Navigator not ready yet, deferring route to $url")
+            pendingRouteUrl = url
+            return
+        }
+
+        pendingRouteUrl = null
+        navigator.route(url)
+    }
+
+    private fun flushPendingRouteUrl() {
+        val url = pendingRouteUrl ?: return
+        val navigator = delegate.currentNavigator ?: return
+        Log.d(TAG, "Flushing deferred route to $url")
+        pendingRouteUrl = null
+        navigator.route(url)
     }
 
     private fun requestNotificationPermission(fromWeb: Boolean = false) {
@@ -510,6 +533,7 @@ class MainActivity : HotwireActivity() {
 
     fun registerWebFragment(fragment: GroovitationWebFragment) {
         activeWebFragment = fragment
+        flushPendingRouteUrl()
     }
 
     fun unregisterWebFragment(fragment: GroovitationWebFragment) {

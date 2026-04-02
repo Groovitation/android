@@ -5,9 +5,7 @@ import android.content.ContentValues
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Environment
-import android.os.SystemClock
 import android.provider.MediaStore
-import android.view.MotionEvent
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -35,6 +33,7 @@ import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 @RunWith(AndroidJUnit4::class)
 class MainActivityAvatarUploadInstrumentedTest {
@@ -354,6 +353,7 @@ class MainActivityAvatarUploadInstrumentedTest {
     }
 
     private fun injectTouch(webView: WebView, target: TapTarget) {
+        val tapPoint = IntArray(2)
         instrumentation.runOnMainSync {
             webView.requestFocus()
 
@@ -361,34 +361,16 @@ class MainActivityAvatarUploadInstrumentedTest {
             val maxLocalY = (webView.height - 2).coerceAtLeast(1).toFloat()
             val localX = (target.xFraction * webView.width.toFloat()).coerceIn(1f, maxLocalX)
             val localY = (target.yFraction * webView.height.toFloat()).coerceIn(1f, maxLocalY)
-
-            val downTime = SystemClock.uptimeMillis()
-            val downEvent = MotionEvent.obtain(
-                downTime,
-                downTime,
-                MotionEvent.ACTION_DOWN,
-                localX,
-                localY,
-                0
-            )
-            val upEvent = MotionEvent.obtain(
-                downTime,
-                downTime + 120,
-                MotionEvent.ACTION_UP,
-                localX,
-                localY,
-                0
-            )
-
-            try {
-                webView.dispatchTouchEvent(downEvent)
-                webView.dispatchTouchEvent(upEvent)
-            } finally {
-                downEvent.recycle()
-                upEvent.recycle()
-            }
+            val locationOnScreen = IntArray(2)
+            webView.getLocationOnScreen(locationOnScreen)
+            tapPoint[0] = (locationOnScreen[0] + localX).roundToInt()
+            tapPoint[1] = (locationOnScreen[1] + localY).roundToInt()
         }
 
+        assertTrue(
+            "Expected UiDevice.click() to tap the avatar input at ${tapPoint[0]},${tapPoint[1]}",
+            device.click(tapPoint[0], tapPoint[1])
+        )
         instrumentation.waitForIdleSync()
         device.waitForIdle()
     }
