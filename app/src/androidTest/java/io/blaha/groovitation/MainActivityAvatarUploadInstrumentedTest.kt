@@ -17,11 +17,14 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.intent.Intents
 import androidx.test.espresso.intent.Intents.intended
 import androidx.test.espresso.intent.Intents.intending
 import androidx.test.espresso.intent.matcher.IntentMatchers.hasAction
 import androidx.test.espresso.intent.matcher.IntentMatchers.hasType
+import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.web.sugar.Web.onWebView
 import androidx.test.espresso.web.webdriver.DriverAtoms.clearElement
 import androidx.test.espresso.web.webdriver.DriverAtoms.findElement
@@ -107,8 +110,9 @@ class MainActivityAvatarUploadInstrumentedTest {
             Intents.init()
             try {
                 stubNativeImagePickerResult(seededImage)
-                tapElementWithUserActivation(webView, "avatar-input")
-                intended(nativeImagePickerIntentMatcher())
+                tapElementWithUserActivation(webView, "avatar-picker-trigger")
+                tapNativeAction(R.id.image_intake_choose_photos)
+                intended(photoPickerIntentMatcher())
             } finally {
                 Intents.release()
             }
@@ -144,6 +148,43 @@ class MainActivityAvatarUploadInstrumentedTest {
                 "Expected avatar image src to carry the persisted upload version. State=$uploadedState",
                 uploadedState.avatarSrc.contains("version=1")
             )
+        }
+    }
+
+    @Test
+    fun avatarUploadOffersExplicitCameraAction() {
+        launchAvatarScenario().use { scenario ->
+            val webView = waitForWebView(scenario, timeoutMs = 45_000)
+            assertNotNull("Expected a WebView to be attached in MainActivity", webView)
+
+            waitForPageState(webView!!, timeoutMs = 60_000) { state ->
+                state.path == "/login" && state.hasLoginForm
+            }
+
+            onWebView().forceJavascriptEnabled()
+            onWebView().withElement(findElement(Locator.ID, "login-email"))
+                .perform(clearElement())
+                .perform(webKeys(FIXTURE_EMAIL))
+            onWebView().withElement(findElement(Locator.ID, "login-password"))
+                .perform(clearElement())
+                .perform(webKeys(FIXTURE_PASSWORD))
+            onWebView().withElement(findElement(Locator.ID, "login-submit")).perform(webClick())
+
+            waitForPageState(webView, timeoutMs = 30_000) { state ->
+                state.path == "/users/edit" && state.hasAvatarForm
+            }
+
+            Intents.init()
+            try {
+                intending(hasAction(MediaStore.ACTION_IMAGE_CAPTURE)).respondWith(
+                    Instrumentation.ActivityResult(Activity.RESULT_OK, null)
+                )
+                tapElementWithUserActivation(webView, "avatar-picker-trigger")
+                tapNativeAction(R.id.image_intake_take_photo)
+                intended(hasAction(MediaStore.ACTION_IMAGE_CAPTURE))
+            } finally {
+                Intents.release()
+            }
         }
     }
 
@@ -286,17 +327,23 @@ class MainActivityAvatarUploadInstrumentedTest {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
-        intending(nativeImagePickerIntentMatcher()).respondWith(
+        intending(photoPickerIntentMatcher()).respondWith(
             Instrumentation.ActivityResult(Activity.RESULT_OK, resultData)
         )
     }
 
-    private fun nativeImagePickerIntentMatcher(): Matcher<Intent> {
+    private fun photoPickerIntentMatcher(): Matcher<Intent> {
         return anyOf(
-            hasAction(Intent.ACTION_CHOOSER),
+            hasAction(MediaStore.ACTION_PICK_IMAGES),
             allOf(hasAction(Intent.ACTION_OPEN_DOCUMENT), hasType("image/*")),
             allOf(hasAction(Intent.ACTION_GET_CONTENT), hasType("image/*"))
         )
+    }
+
+    private fun tapNativeAction(viewId: Int) {
+        onView(withId(viewId)).perform(click())
+        instrumentation.waitForIdleSync()
+        device.waitForIdle()
     }
 
     private fun tapElementWithUserActivation(webView: WebView, elementId: String) {

@@ -19,14 +19,17 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.navigation.NavigationBarView
 import com.google.firebase.messaging.FirebaseMessaging
 import dev.hotwire.navigation.activities.HotwireActivity
@@ -39,6 +42,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.io.File
 
 class MainActivity : HotwireActivity() {
 
@@ -52,6 +56,9 @@ class MainActivity : HotwireActivity() {
         private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
         private const val WELCOME_NOTIFICATION_ID = 1001
+        private const val IMAGE_INTAKE_CAMERA_PREFIX = "image-intake-camera-"
+        private const val IMAGE_INTAKE_CAMERA_SUFFIX = ".jpg"
+        private const val IMAGE_INTAKE_STALE_MS = 24L * 60L * 60L * 1000L
         internal const val EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN =
             "io.blaha.groovitation.extra.DISABLE_STARTUP_PERMISSION_CHAIN"
         internal const val EXTRA_SKIP_LOCATION_PERMISSION_CHAIN =
@@ -102,12 +109,18 @@ class MainActivity : HotwireActivity() {
     private var lastNavUsedClearAll: Boolean = false
     private var lastRoutedUrlForTest: String? = null
     private var pendingFileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingCameraCapture: PendingCameraCapture? = null
+    private var activeImageIntakeDialog: BottomSheetDialog? = null
     private val nativeGoogleSignInCoordinator by lazy {
         NativeGoogleSignInCoordinator(
             googleIdTokenProvider = CredentialManagerGoogleIdTokenProvider(this),
             nativeGoogleAuthApi = BackendNativeGoogleAuthApi(BuildConfig.BASE_URL, httpClient),
         )
     }
+    private data class PendingCameraCapture(
+        val uri: Uri,
+        val file: File
+    )
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -154,9 +167,26 @@ class MainActivity : HotwireActivity() {
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val callback = pendingFileChooserCallback ?: return@registerForActivityResult
-        pendingFileChooserCallback = null
-        callback.onReceiveValue(extractFileChooserUris(result.resultCode, result.data))
+        finishImageChooser(extractFileChooserUris(result.resultCode, result.data))
+    }
+
+    private val photoPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        finishImageChooser(uri?.let { arrayOf(it) })
+    }
+
+    private val takePictureLauncher = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        val capture = pendingCameraCapture
+        pendingCameraCapture = null
+        if (success && capture != null) {
+            finishImageChooser(arrayOf(capture.uri))
+        } else {
+            capture?.file?.delete()
+            finishImageChooser(null)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -566,27 +596,84 @@ class MainActivity : HotwireActivity() {
         filePathCallback: ValueCallback<Array<Uri>>,
         fileChooserParams: WebChromeClient.FileChooserParams?
     ): Boolean {
-        pendingFileChooserCallback?.onReceiveValue(null)
+        cancelPendingImageChooser()
         pendingFileChooserCallback = filePathCallback
-
-        val chooserIntent = runCatching { fileChooserParams?.createIntent() }.getOrNull()
-            ?: Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "image/*"
-            }
-
-        chooserIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        chooserIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
+        cleanupStaleImageIntakeFiles()
 
         return runCatching {
-            fileChooserLauncher.launch(chooserIntent)
+            showImageIntakeSheet()
             true
         }.getOrElse { error ->
             Log.e(TAG, "Failed to launch image chooser", error)
-            pendingFileChooserCallback = null
-            filePathCallback.onReceiveValue(null)
+            finishImageChooser(null)
             false
         }
+    }
+
+    private fun showImageIntakeSheet() {
+        activeImageIntakeDialog?.dismiss()
+
+        val dialog = BottomSheetDialog(this)
+        val contentView = layoutInflater.inflate(R.layout.dialog_image_intake_options, null)
+        dialog.setContentView(contentView)
+
+        contentView.findViewById<View>(R.id.image_intake_choose_photos).setOnClickListener {
+            dialog.dismiss()
+            launchPhotoPicker()
+        }
+        contentView.findViewById<View>(R.id.image_intake_take_photo).setOnClickListener {
+            dialog.dismiss()
+            launchCameraCapture()
+        }
+        contentView.findViewById<View>(R.id.image_intake_browse_files).setOnClickListener {
+            dialog.dismiss()
+            launchDocumentPicker()
+        }
+
+        dialog.setOnDismissListener {
+            if (activeImageIntakeDialog === dialog) {
+                activeImageIntakeDialog = null
+            }
+        }
+        dialog.setOnCancelListener {
+            if (pendingFileChooserCallback != null) {
+                finishImageChooser(null)
+            }
+        }
+
+        activeImageIntakeDialog = dialog
+        dialog.show()
+    }
+
+    private fun launchPhotoPicker() {
+        photoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+
+    private fun launchDocumentPicker() {
+        val chooserIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        chooserIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        chooserIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
+        fileChooserLauncher.launch(chooserIntent)
+    }
+
+    private fun launchCameraCapture() {
+        val captureFile = File.createTempFile(
+            IMAGE_INTAKE_CAMERA_PREFIX,
+            IMAGE_INTAKE_CAMERA_SUFFIX,
+            cacheDir
+        )
+        val captureUri = FileProvider.getUriForFile(
+            this,
+            "${packageName}.fileprovider",
+            captureFile
+        )
+        pendingCameraCapture = PendingCameraCapture(captureUri, captureFile)
+        takePictureLauncher.launch(captureUri)
     }
 
     private fun extractFileChooserUris(
@@ -605,6 +692,47 @@ class MainActivity : HotwireActivity() {
             }
         }
         return uris.takeIf { it.isNotEmpty() }?.toTypedArray()
+    }
+
+    private fun finishImageChooser(uris: Array<Uri>?) {
+        activeImageIntakeDialog?.dismiss()
+        activeImageIntakeDialog = null
+
+        val callback = pendingFileChooserCallback ?: return
+        pendingFileChooserCallback = null
+
+        uris?.forEach(::persistReadPermissionIfPossible)
+        callback.onReceiveValue(uris)
+    }
+
+    private fun cancelPendingImageChooser() {
+        activeImageIntakeDialog?.dismiss()
+        activeImageIntakeDialog = null
+        pendingCameraCapture?.file?.delete()
+        pendingCameraCapture = null
+        pendingFileChooserCallback?.onReceiveValue(null)
+        pendingFileChooserCallback = null
+    }
+
+    private fun persistReadPermissionIfPossible(uri: Uri) {
+        if (uri.scheme != "content") return
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+    }
+
+    private fun cleanupStaleImageIntakeFiles() {
+        val cutoff = System.currentTimeMillis() - IMAGE_INTAKE_STALE_MS
+        cacheDir.listFiles()?.forEach { file ->
+            val isImageIntakeFile = file.name.startsWith(IMAGE_INTAKE_CAMERA_PREFIX) ||
+                file.name.startsWith(GroovitationWebView.AVATAR_CONVERSION_PREFIX)
+            if (isImageIntakeFile && file.lastModified() < cutoff) {
+                file.delete()
+            }
+        }
     }
 
     fun registerWebFragment(fragment: GroovitationWebFragment) {

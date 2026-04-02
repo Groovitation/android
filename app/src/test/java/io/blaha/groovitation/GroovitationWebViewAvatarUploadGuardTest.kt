@@ -43,6 +43,30 @@ class GroovitationWebViewAvatarUploadGuardTest {
     @Test
     fun rejectsHeicBytesMasqueradingAsJpegMimeType() {
         val heicHeader = byteArrayOf(0x00, 0x00, 0x00, 0x18) + "ftypheic".toByteArray(StandardCharsets.US_ASCII)
-        assertFalse(GroovitationWebView.isAllowedAvatarPayload("image/jpeg", 1024L, heicHeader))
+        assertFalse(
+            GroovitationWebView.isAllowedAvatarPayload(
+                "image/jpeg",
+                1024L,
+                heicHeader,
+                "avatar.jpg"
+            )
+        )
+    }
+
+    @Test
+    fun detectsHeicHeaderFromHeaderBytes() {
+        val heicHeader = byteArrayOf(0x00, 0x00, 0x00, 0x18) +
+            "ftypmif1".toByteArray(StandardCharsets.US_ASCII)
+        assertTrue(GroovitationWebView.sniffAvatarMimeType(heicHeader) == "image/heic")
+    }
+
+    @Test
+    fun recognizesHeifMimeTypesAndDisplayNames() {
+        assertTrue(GroovitationWebView.isHeifMimeType("image/heic"))
+        assertTrue(GroovitationWebView.isHeifMimeType("image/heif"))
+        assertTrue(GroovitationWebView.isHeifDisplayName("profile.heic"))
+        assertTrue(GroovitationWebView.isHeifDisplayName("profile.HEIF"))
+        assertFalse(GroovitationWebView.isHeifMimeType("image/jpeg"))
+        assertFalse(GroovitationWebView.isHeifDisplayName("profile.jpg"))
     }
 }
