@@ -369,13 +369,19 @@ class MainActivity : HotwireActivity() {
                     val redirect = uri.getQueryParameter("redirect") ?: "/"
                     if (token != null) {
                         Log.d(TAG, "OAuth callback received, authenticating in WebView")
+                        updateBottomNavForPath(redirect)
                         val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=$token&redirect=$redirect&platform=android"
                         routeUrlWhenReady(authUrl)
                     }
                 } else if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
-                    updateBottomNavForPath(path)
+                    val oauthRedirectPath = if (path == "/oauth/native-authenticate") {
+                        uri.getQueryParameter("redirect")
+                    } else {
+                        null
+                    }
+                    updateBottomNavForPath(oauthRedirectPath ?: path)
                     routeUrlWhenReady(uri.toString())
                 }
             }
