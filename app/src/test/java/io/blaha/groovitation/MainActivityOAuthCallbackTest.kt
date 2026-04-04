@@ -31,16 +31,17 @@ class MainActivityOAuthCallbackTest {
     @Test
     fun httpsAppLinkOauthCallbackRoutesToNativeAuthenticateAndSelectsEventsTab() {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val appLinkUrl = "https://groovitation.blaha.io/oauth/native-authenticate?token=test-token&redirect=%2F&platform=android"
 
         activity.handleIntentForTest(
             Intent(
                 Intent.ACTION_VIEW,
-                Uri.parse("${BuildConfig.BASE_URL}/oauth/native-authenticate?token=test-token&redirect=%2F&platform=android")
+                Uri.parse(appLinkUrl)
             )
         )
 
         assertEquals(
-            "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=test-token&redirect=%2F&platform=android",
+            appLinkUrl,
             activity.lastRoutedUrlForTest()
         )
         assertEquals(R.id.nav_home, activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottom_navigation).selectedItemId)
