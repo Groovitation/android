@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
-import android.webkit.CookieManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.location.Geofence
@@ -160,9 +159,9 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             pendingResult.finish()
             return
         }
-        val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
-            ?: prefs.getString(LocationTrackingService.KEY_SESSION_COOKIE, null)
+        val resolvedCookie = LocationTrackingService.resolveSessionCookie(context, TAG)
             ?: run {
+                Log.w(TAG, "No authenticated session cookie available, skipping geofence location post")
                 pendingResult.finish()
                 return
             }
@@ -183,16 +182,21 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     .url("${BuildConfig.BASE_URL}/people/$personUuid/location")
                     .post(json.toString().toRequestBody("application/json".toMediaType()))
                     .addHeader("Content-Type", "application/json")
-                    .addHeader("Cookie", cookie)
+                    .addHeader("Cookie", resolvedCookie.header)
                     .build()
 
-                val response = httpClient.newCall(request).execute()
-                if (response.isSuccessful) {
-                    Log.d(TAG, "Location posted on geofence transition")
-                } else {
-                    Log.w(TAG, "Failed to post location: ${response.code}")
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Location posted on geofence transition")
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Failed to post location: ${response.code} ${response.message} " +
+                                "(cookieSource=${resolvedCookie.source}, " +
+                                "webViewCookies=${resolvedCookie.webViewCookieSummary})"
+                        )
+                    }
                 }
-                response.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error posting location", e)
             } finally {
