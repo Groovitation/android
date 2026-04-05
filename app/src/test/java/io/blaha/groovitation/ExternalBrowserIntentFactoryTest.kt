@@ -1,56 +1,41 @@
 package io.blaha.groovitation
 
-import android.content.Intent
-import android.content.pm.ActivityInfo
-import android.content.pm.ResolveInfo
-import android.net.Uri
+import android.app.Activity
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 
 @RunWith(RobolectricTestRunner::class)
 class ExternalBrowserIntentFactoryTest {
 
     @Test
-    fun buildPrefersChromeWhenInstalled() {
-        val context = RuntimeEnvironment.getApplication()
-        val shadowPackageManager = Shadows.shadowOf(context.packageManager)
+    fun launchOpensCustomTabWithCorrectUrl() {
+        val activity = Robolectric.buildActivity(Activity::class.java).create().get()
         val url = "https://accounts.google.com/o/oauth2/v2/auth"
 
-        val chromeResolveInfo = ResolveInfo().apply {
-            activityInfo = ActivityInfo().apply {
-                packageName = "com.android.chrome"
-                name = "ChromeActivity"
-            }
-        }
+        ExternalBrowserIntentFactory.launch(activity, url)
 
-        shadowPackageManager.addResolveInfoForIntent(
-            Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                .addCategory(Intent.CATEGORY_BROWSABLE)
-                .setPackage("com.android.chrome"),
-            chromeResolveInfo
-        )
-
-        val intent = ExternalBrowserIntentFactory.build(context, url)
-
-        assertEquals(Intent.ACTION_VIEW, intent.action)
-        assertEquals(url, intent.dataString)
-        assertEquals("com.android.chrome", intent.`package`)
+        val shadowActivity = Shadows.shadowOf(activity)
+        val intent = shadowActivity.nextStartedActivity
+        assertNotNull("Custom Tab intent should be started", intent)
+        assertEquals(url, intent.data.toString())
     }
 
     @Test
-    fun buildFallsBackToDefaultBrowserWhenChromeUnavailable() {
-        val context = RuntimeEnvironment.getApplication()
-        val url = "https://accounts.google.com/o/oauth2/v2/auth"
+    fun launchIncludesCustomTabsSessionExtra() {
+        val activity = Robolectric.buildActivity(Activity::class.java).create().get()
+        val url = "https://example.com"
 
-        val intent = ExternalBrowserIntentFactory.build(context, url)
+        ExternalBrowserIntentFactory.launch(activity, url)
 
-        assertEquals(Intent.ACTION_VIEW, intent.action)
-        assertEquals(url, intent.dataString)
-        assertNull(intent.`package`)
+        val shadowActivity = Shadows.shadowOf(activity)
+        val intent = shadowActivity.nextStartedActivity
+        assertNotNull(intent)
+        // Custom Tabs intents include a session extra to distinguish from plain ACTION_VIEW
+        assert(intent.hasExtra("android.support.customtabs.extra.SESSION"))
     }
 }

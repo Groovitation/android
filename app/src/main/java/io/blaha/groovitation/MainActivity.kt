@@ -406,9 +406,8 @@ class MainActivity : HotwireActivity() {
                 )
             ) {
                 is NativeGoogleSignInAction.Navigate -> routeUrlWhenReady(action.url)
-                is NativeGoogleSignInAction.OpenBrowser -> startActivity(
-                    ExternalBrowserIntentFactory.build(this@MainActivity, action.url),
-                )
+                is NativeGoogleSignInAction.OpenBrowser ->
+                    ExternalBrowserIntentFactory.launch(this@MainActivity, action.url)
             }
         }
     }
