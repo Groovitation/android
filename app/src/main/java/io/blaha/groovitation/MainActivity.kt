@@ -405,7 +405,7 @@ class MainActivity : HotwireActivity() {
                     cookieHeader = cookieHeader,
                 )
             ) {
-                is NativeGoogleSignInAction.Navigate -> routeUrl(action.url)
+                is NativeGoogleSignInAction.Navigate -> routeUrlWhenReady(action.url)
                 is NativeGoogleSignInAction.OpenBrowser -> startActivity(
                     ExternalBrowserIntentFactory.build(this@MainActivity, action.url),
                 )
