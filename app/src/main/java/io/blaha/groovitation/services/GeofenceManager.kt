@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.util.Log
-import android.webkit.CookieManager
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingClient
@@ -216,11 +215,9 @@ class GeofenceManager(private val context: Context) {
 
     private suspend fun fetchGeofencesFromServer(lat: Double, lon: Double): JSONObject =
         withContext(Dispatchers.IO) {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
-                ?: prefs.getString(LocationTrackingService.KEY_SESSION_COOKIE, null)
+            val resolvedCookie = LocationTrackingService.resolveSessionCookie(context, TAG)
                 ?: run {
-                    Log.w(TAG, "No session cookie available")
+                    Log.w(TAG, "No authenticated session cookie available, skipping geofence refresh fetch")
                     return@withContext JSONObject()
                 }
 
@@ -228,19 +225,23 @@ class GeofenceManager(private val context: Context) {
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .addHeader("Cookie", cookie)
+                .addHeader("Cookie", resolvedCookie.header)
                 .build()
 
             try {
-                val response = httpClient.newCall(request).execute()
-                if (response.isSuccessful) {
-                    val body = response.body?.string() ?: "{}"
-                    response.close()
-                    JSONObject(body)
-                } else {
-                    Log.w(TAG, "Geofences API returned ${response.code}")
-                    response.close()
-                    JSONObject()
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: "{}"
+                        JSONObject(body)
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Geofences API returned ${response.code} ${response.message} " +
+                                "(cookieSource=${resolvedCookie.source}, " +
+                                "webViewCookies=${resolvedCookie.webViewCookieSummary})"
+                        )
+                        JSONObject()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error fetching geofences", e)
