@@ -13,6 +13,7 @@ import dev.hotwire.core.turbo.errors.VisitError
 import dev.hotwire.core.turbo.webview.HotwireWebView
 import dev.hotwire.navigation.destinations.HotwireDestinationDeepLink
 import dev.hotwire.navigation.fragments.HotwireWebFragment
+import io.blaha.groovitation.services.LocationTrackingService
 import org.json.JSONObject
 
 /**
@@ -372,6 +373,19 @@ class GroovitationWebFragment : HotwireWebFragment() {
             activity?.runOnUiThread {
                 (activity as? MainActivity)?.onPersonIdReceived(personId)
             }
+        }
+
+        @JavascriptInterface
+        fun setSessionCookie(cookie: String) {
+            if (cookie.isBlank()) return
+            val appContext = activity?.applicationContext ?: return
+            LocationTrackingService.storeSessionCookie(appContext, cookie, TAG)
+        }
+
+        @JavascriptInterface
+        fun getDeviceId(): String {
+            val resolver = activity?.contentResolver ?: return ""
+            return Settings.Secure.getString(resolver, Settings.Secure.ANDROID_ID) ?: ""
         }
 
         @JavascriptInterface

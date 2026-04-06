@@ -21,4 +21,14 @@ class PermissionBridgeSourceTest {
         assertTrue(source.contains("fun syncPermissionStatesToWeb()"))
         assertTrue(source.contains("dispatchLocationPermissionState(hasLocationPermission())"))
     }
+
+    @Test
+    fun groovitationWebFragmentExposesCookieAndDeviceIdBridgeMethods() {
+        val source = File("src/main/java/io/blaha/groovitation/GroovitationWebFragment.kt").readText()
+
+        assertTrue(source.contains("fun setSessionCookie(cookie: String)"))
+        assertTrue(source.contains("LocationTrackingService.storeSessionCookie"))
+        assertTrue(source.contains("fun getDeviceId(): String"))
+        assertTrue(source.contains("Settings.Secure.ANDROID_ID"))
+    }
 }

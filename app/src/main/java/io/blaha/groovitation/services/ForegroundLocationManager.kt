@@ -36,6 +36,11 @@ class ForegroundLocationManager(private val context: Context) {
 
     companion object {
         private const val TAG = "ForegroundLocationMgr"
+        private const val COOKIE_RETRY_DELAY_MS = 5000L
+
+        internal fun retryDelayMsForMissingCookie(resolvedCookie: ResolvedSessionCookie?): Long? {
+            return if (resolvedCookie == null) COOKIE_RETRY_DELAY_MS else null
+        }
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -146,12 +151,26 @@ class ForegroundLocationManager(private val context: Context) {
         }, 35000L)
     }
 
-    private fun postToServer(personUuid: String, location: Location) {
+    private fun postToServer(personUuid: String, location: Location, attempt: Int = 0) {
         val resolvedCookie = LocationTrackingService.resolveSessionCookie(context, TAG)
-            ?: run {
+        if (resolvedCookie == null) {
+            val retryDelayMs =
+                if (attempt == 0) retryDelayMsForMissingCookie(resolvedCookie) else null
+            if (retryDelayMs != null) {
+                Log.w(
+                    TAG,
+                    "No authenticated session cookie available for foreground GPS post; " +
+                        "retrying in ${retryDelayMs}ms"
+                )
+                Handler(Looper.getMainLooper()).postDelayed(
+                    { postToServer(personUuid, location, attempt + 1) },
+                    retryDelayMs
+                )
+            } else {
                 Log.w(TAG, "No authenticated session cookie available, skipping foreground GPS post")
-                return
             }
+            return
+        }
 
         scope.launch {
             try {
