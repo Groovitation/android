@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingTop="24dp"
+    android:paddingEnd="24dp"
+    android:paddingBottom="32dp">
+
+    <TextView
+        android:id="@+id/image_intake_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/image_intake_title"
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
+        android:textColor="@color/text_primary" />
+
+    <TextView
+        android:id="@+id/image_intake_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/image_intake_subtitle"
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+        android:textColor="@color/text_secondary" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/image_intake_choose_photos"
+        style="?attr/materialButtonOutlinedStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/image_intake_choose_photos"
+        app:icon="@android:drawable/ic_menu_gallery"
+        app:iconGravity="textStart"
+        app:iconPadding="12dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/image_intake_take_photo"
+        style="?attr/materialButtonOutlinedStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/image_intake_take_photo"
+        app:icon="@android:drawable/ic_menu_camera"
+        app:iconGravity="textStart"
+        app:iconPadding="12dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/image_intake_browse_files"
+        style="?attr/materialButtonOutlinedStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/image_intake_browse_files"
+        app:icon="@android:drawable/ic_menu_upload"
+        app:iconGravity="textStart"
+        app:iconPadding="12dp" />
+
+</LinearLayout>

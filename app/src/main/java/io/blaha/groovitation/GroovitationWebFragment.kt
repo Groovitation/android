@@ -472,8 +472,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
             pendingExternalBrowserReturnUrl = url
             activity?.let { act ->
                 act.runOnUiThread {
-                    val intent = ExternalBrowserIntentFactory.build(act, url)
-                    act.startActivity(intent)
+                    ExternalBrowserIntentFactory.launch(act, url)
                 }
             }
         }

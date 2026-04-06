@@ -2,6 +2,7 @@ package io.blaha.groovitation
 
 import android.content.Intent
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,5 +45,16 @@ class MainActivityStartupTest {
         )
 
         assertFalse(MainActivity.shouldContinueLocationPermissionChain(testIntent))
+    }
+
+    @Test
+    fun startupDeepLinkUrlIsDeferredUntilNavigatorIsReady() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).create().get()
+        val deepLinkUrl = "${BuildConfig.BASE_URL}/test/permission-bridge"
+
+        activity.handleIntentForTest(Intent().putExtra("url", deepLinkUrl))
+
+        assertEquals(deepLinkUrl, activity.lastRoutedUrlForTest())
+        assertEquals(deepLinkUrl, activity.pendingRouteUrlForTest())
     }
 }

@@ -2,15 +2,23 @@ package io.blaha.groovitation
 
 import android.Manifest
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.AttributeSet
 import android.util.Log
 import android.widget.Toast
 import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import dev.hotwire.core.turbo.webview.HotwireWebView
+import java.io.File
 import java.nio.charset.StandardCharsets
+import kotlin.math.ceil
 
 /**
  * Custom WebView for Groovitation.
@@ -28,6 +36,10 @@ class GroovitationWebView @JvmOverloads constructor(
         private const val TAG = "GroovitationWebView"
         internal const val AVATAR_UPLOAD_MAX_BYTES: Long = 80L * 1024L * 1024L
         private const val AVATAR_PROBE_BYTES = 32
+        internal const val AVATAR_CONVERSION_PREFIX = "avatar-upload-"
+        private const val AVATAR_CONVERSION_STALE_MS = 24L * 60L * 60L * 1000L
+        private const val NORMALIZED_AVATAR_MAX_DIMENSION = 2048
+        private const val NORMALIZED_AVATAR_JPEG_QUALITY = 82
         private val SUPPORTED_AVATAR_MIME_TYPES = setOf(
             "image/jpeg",
             "image/jpg",
@@ -36,10 +48,30 @@ class GroovitationWebView @JvmOverloads constructor(
             "image/webp",
             "image/avif"
         )
+        private val HEIF_BRANDS = setOf("heic", "heix", "hevc", "hevx", "mif1", "msf1")
+        private val HEIF_MIME_TYPES = setOf("image/heic", "image/heif")
+        private val SUPPORTED_AVATAR_FILE_EXTENSIONS = setOf(
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".webp",
+            ".avif"
+        )
+        private val HEIF_FILE_EXTENSIONS = setOf(
+            ".heic",
+            ".heif"
+        )
 
         internal fun isSupportedAvatarMimeType(mimeType: String?): Boolean {
             if (mimeType.isNullOrBlank()) return false
             return SUPPORTED_AVATAR_MIME_TYPES.contains(mimeType.lowercase())
+        }
+
+        internal fun isSupportedAvatarDisplayName(displayName: String?): Boolean {
+            if (displayName.isNullOrBlank()) return false
+            val lowercaseName = displayName.lowercase()
+            return SUPPORTED_AVATAR_FILE_EXTENSIONS.any(lowercaseName::endsWith)
         }
 
         private fun ascii(bytes: ByteArray, start: Int, end: Int): String {
@@ -68,22 +100,61 @@ class GroovitationWebView @JvmOverloads constructor(
                     ascii(headerBytes, 8, 12) == "WEBP" -> "image/webp"
                 headerBytes.size >= 12 &&
                     ascii(headerBytes, 4, 8) == "ftyp" &&
+                    HEIF_BRANDS.contains(ascii(headerBytes, 8, 12).lowercase()) -> "image/heic"
+                headerBytes.size >= 12 &&
+                    ascii(headerBytes, 4, 8) == "ftyp" &&
                     setOf("avif", "avis").contains(ascii(headerBytes, 8, 12)) -> "image/avif"
                 else -> null
             }
         }
 
+        internal fun isHeifMimeType(mimeType: String?): Boolean {
+            if (mimeType.isNullOrBlank()) return false
+            return HEIF_MIME_TYPES.contains(mimeType.lowercase())
+        }
+
+        internal fun isHeifDisplayName(displayName: String?): Boolean {
+            if (displayName.isNullOrBlank()) return false
+            val lowercaseName = displayName.lowercase()
+            return HEIF_FILE_EXTENSIONS.any(lowercaseName::endsWith)
+        }
+
+        internal fun isCameraCaptureDisplayName(displayName: String?): Boolean {
+            if (displayName.isNullOrBlank()) return false
+            return displayName.startsWith(MainActivity.IMAGE_INTAKE_CAMERA_PREFIX, ignoreCase = true)
+        }
+
+        internal fun shouldNormalizeAvatarForUpload(
+            mimeType: String?,
+            headerBytes: ByteArray? = null,
+            displayName: String? = null,
+            sourceLabel: String? = null
+        ): Boolean {
+            val sniffedMimeType = sniffAvatarMimeType(headerBytes)
+            return isHeifMimeType(sniffedMimeType) ||
+                isHeifMimeType(mimeType) ||
+                isHeifDisplayName(displayName) ||
+                isCameraCaptureDisplayName(displayName) ||
+                sourceLabel?.contains(MainActivity.IMAGE_INTAKE_CAMERA_PREFIX, ignoreCase = true) == true
+        }
+
         internal fun isAllowedAvatarPayload(
             mimeType: String?,
             sizeBytes: Long,
-            headerBytes: ByteArray? = null
+            headerBytes: ByteArray? = null,
+            displayName: String? = null
         ): Boolean {
             if (sizeBytes >= 0L && sizeBytes > AVATAR_UPLOAD_MAX_BYTES) return false
 
             val sniffedMimeType = sniffAvatarMimeType(headerBytes)
             if (headerBytes != null && headerBytes.isNotEmpty() && sniffedMimeType == null) return false
 
-            return isSupportedAvatarMimeType(sniffedMimeType ?: mimeType)
+            if (sniffedMimeType != null) {
+                return isSupportedAvatarMimeType(sniffedMimeType)
+            }
+
+            return isSupportedAvatarMimeType(mimeType) ||
+                isSupportedAvatarDisplayName(displayName)
         }
     }
 
@@ -104,6 +175,14 @@ class GroovitationWebView @JvmOverloads constructor(
         private val delegate: WebChromeClient,
         private val appContext: Context
     ) : WebChromeClient() {
+
+        private data class AvatarCandidate(
+            val uri: Uri,
+            val mimeType: String?,
+            val sizeBytes: Long,
+            val headerBytes: ByteArray?,
+            val displayName: String?
+        )
 
         override fun onGeolocationPermissionsShowPrompt(
             origin: String,
@@ -184,24 +263,34 @@ class GroovitationWebView @JvmOverloads constructor(
                     return@ValueCallback
                 }
 
-                val acceptedUris = uris.filter { uri ->
-                    val mimeType = runCatching { appContext.contentResolver.getType(uri) }.getOrNull()
-                    val sizeBytes = readContentSize(uri)
-                    val headerBytes = readAvatarHeader(uri)
-                    val allowed = isAllowedAvatarPayload(mimeType, sizeBytes, headerBytes)
+                val acceptedUris = uris.mapNotNull { uri ->
+                    val candidate = preprocessAvatarUri(uri)
+                    if (candidate == null) {
+                        Log.w(TAG, "Unable to prepare avatar upload uri=$uri")
+                        return@mapNotNull null
+                    }
+
+                    val allowed = isAllowedAvatarPayload(
+                        candidate.mimeType,
+                        candidate.sizeBytes,
+                        candidate.headerBytes,
+                        candidate.displayName
+                    )
                     if (!allowed) {
                         Log.w(
                             TAG,
-                            "Rejecting avatar upload uri=$uri mime=$mimeType sniffed=${sniffAvatarMimeType(headerBytes)} sizeBytes=$sizeBytes"
+                            "Rejecting avatar upload uri=${candidate.uri} mime=${candidate.mimeType} sniffed=${sniffAvatarMimeType(candidate.headerBytes)} sizeBytes=${candidate.sizeBytes} displayName=${candidate.displayName}"
                         )
+                        null
+                    } else {
+                        candidate.uri
                     }
-                    allowed
                 }
 
                 if (acceptedUris.isEmpty()) {
                     Toast.makeText(
                         appContext,
-                        "Avatar upload supports JPG, PNG, GIF, WEBP, or AVIF up to 40MB.",
+                        "Avatar upload supports JPG, PNG, GIF, WEBP, AVIF, or HEIC up to 80MB.",
                         Toast.LENGTH_LONG
                     ).show()
                     filePathCallback.onReceiveValue(null)
@@ -210,7 +299,111 @@ class GroovitationWebView @JvmOverloads constructor(
                 }
             }
 
+            val activity = webView?.context?.findMainActivity()
+            if (activity != null) {
+                return activity.launchImageChooser(guardedCallback, fileChooserParams)
+            }
+
             return delegate.onShowFileChooser(webView, guardedCallback, fileChooserParams)
+        }
+
+        private fun preprocessAvatarUri(originalUri: Uri): AvatarCandidate? {
+            val displayName = readDisplayName(originalUri)
+            val headerBytes = readAvatarHeader(originalUri)
+            val sniffedMime = sniffAvatarMimeType(headerBytes)
+            val explicitMime = runCatching { appContext.contentResolver.getType(originalUri) }.getOrNull()
+            val sourceLabel = originalUri.toString()
+            val isRequiredHeifRewrite = isHeifMimeType(sniffedMime) ||
+                isHeifMimeType(explicitMime) ||
+                isHeifDisplayName(displayName)
+            val candidateNeedsNormalization = shouldNormalizeAvatarForUpload(
+                mimeType = explicitMime,
+                headerBytes = headerBytes,
+                displayName = displayName,
+                sourceLabel = sourceLabel
+            )
+
+            if (candidateNeedsNormalization) {
+                cleanupConvertedAvatarCache()
+                Log.d(
+                    TAG,
+                    "Normalizing avatar upload uri=$originalUri mime=$explicitMime sniffed=$sniffedMime displayName=$displayName"
+                )
+                val convertedUri = normalizeAvatarToJpeg(originalUri, displayName)
+                if (convertedUri == null && isRequiredHeifRewrite) {
+                    return null
+                }
+                if (convertedUri != null) {
+                    val convertedHeader = readAvatarHeader(convertedUri)
+                    return AvatarCandidate(
+                        uri = convertedUri,
+                        mimeType = sniffAvatarMimeType(convertedHeader) ?: "image/jpeg",
+                        sizeBytes = readContentSize(convertedUri),
+                        headerBytes = convertedHeader,
+                        displayName = readDisplayName(convertedUri)
+                    )
+                }
+            }
+
+            return AvatarCandidate(
+                uri = originalUri,
+                mimeType = sniffedMime ?: explicitMime,
+                sizeBytes = readContentSize(originalUri),
+                headerBytes = headerBytes,
+                displayName = displayName
+            )
+        }
+
+        private fun normalizeAvatarToJpeg(uri: Uri, originalDisplayName: String?): Uri? {
+            return runCatching {
+                val source = ImageDecoder.createSource(appContext.contentResolver, uri)
+                val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val maxDimension = maxOf(info.size.width, info.size.height)
+                    if (maxDimension > NORMALIZED_AVATAR_MAX_DIMENSION) {
+                        val sampleSize = ceil(
+                            maxDimension.toDouble() / NORMALIZED_AVATAR_MAX_DIMENSION.toDouble()
+                        ).toInt()
+                        decoder.setTargetSampleSize(sampleSize.coerceAtLeast(1))
+                    }
+                }
+                val cacheFile = File(
+                    appContext.cacheDir,
+                    buildConvertedAvatarFileName(originalDisplayName)
+                )
+                cacheFile.outputStream().use { output ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, NORMALIZED_AVATAR_JPEG_QUALITY, output)
+                }
+                bitmap.recycle()
+                FileProvider.getUriForFile(
+                    appContext,
+                    "${appContext.packageName}.fileprovider",
+                    cacheFile
+                )
+            }.onFailure {
+                Log.w(TAG, "Failed to normalize avatar uri=$uri", it)
+            }.getOrNull()
+        }
+
+        private fun buildConvertedAvatarFileName(originalDisplayName: String?): String {
+            val sanitizedBaseName = originalDisplayName
+                ?.substringBeforeLast('.')
+                ?.replace(Regex("[^A-Za-z0-9_-]+"), "-")
+                ?.trim('-')
+                ?.takeIf { it.isNotBlank() }
+                ?: "avatar"
+            return "$AVATAR_CONVERSION_PREFIX${sanitizedBaseName}-${System.currentTimeMillis()}.jpg"
+        }
+
+        private fun cleanupConvertedAvatarCache() {
+            val cutoff = System.currentTimeMillis() - AVATAR_CONVERSION_STALE_MS
+            appContext.cacheDir.listFiles { file ->
+                file.name.startsWith(AVATAR_CONVERSION_PREFIX)
+            }?.forEach { file ->
+                if (file.lastModified() < cutoff) {
+                    file.delete()
+                }
+            }
         }
 
         private fun readContentSize(uri: android.net.Uri): Long {
@@ -259,6 +452,23 @@ class GroovitationWebView @JvmOverloads constructor(
             }.getOrNull()
         }
 
+        private fun readDisplayName(uri: android.net.Uri): String? {
+            return runCatching {
+                appContext.contentResolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val columnIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (columnIndex < 0) return@use null
+                    cursor.getString(columnIndex)
+                }
+            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/')
+        }
+
         override fun onJsAlert(
             view: android.webkit.WebView?, url: String?, message: String?,
             result: android.webkit.JsResult?
@@ -289,6 +499,15 @@ class GroovitationWebView @JvmOverloads constructor(
 
         override fun onCloseWindow(window: android.webkit.WebView?) {
             delegate.onCloseWindow(window)
+        }
+
+        private fun Context.findMainActivity(): MainActivity? {
+            var current: Context? = this
+            while (current is ContextWrapper) {
+                if (current is MainActivity) return current
+                current = current.baseContext
+            }
+            return null
         }
     }
 }

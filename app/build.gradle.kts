@@ -24,10 +24,11 @@ android {
         applicationId = "io.blaha.groovitation"
         minSdk = 28
         targetSdk = 35
-        versionCode = 102
-        versionName = "1.0.101"
+        versionCode = 121
+        versionName = "1.0.120"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
 
         // Hotwire Native configuration (BASE_URL set by product flavor)
         buildConfigField("String", "USER_AGENT_EXTENSION", "\"Groovitation Android/${versionName} Hotwire Native Android/1.2.0\"")
@@ -79,6 +80,7 @@ android {
     }
 
     testOptions {
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
         unitTests.isIncludeAndroidResources = true
     }
 }
@@ -94,6 +96,7 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.8.2")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
     implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
@@ -142,6 +145,8 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test:rules:1.5.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.test.espresso:espresso-intents:3.5.1")
     androidTestImplementation("androidx.test.espresso:espresso-web:3.5.1")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestUtil("androidx.test:orchestrator:1.5.0")
 }

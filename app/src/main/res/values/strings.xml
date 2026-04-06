@@ -20,4 +20,11 @@
 
     <!-- Share -->
     <string name="share_title">Share via</string>
+
+    <!-- Image intake -->
+    <string name="image_intake_title">Add a photo</string>
+    <string name="image_intake_subtitle">Choose from Photos, take a new picture, or browse your files.</string>
+    <string name="image_intake_choose_photos">Choose from Photos</string>
+    <string name="image_intake_take_photo">Take Photo</string>
+    <string name="image_intake_browse_files">Browse Files</string>
 </resources>

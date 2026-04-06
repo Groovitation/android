@@ -1,6 +1,7 @@
 package io.blaha.groovitation
 
 import android.Manifest
+import android.app.Activity
 import android.app.AlertDialog
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -8,21 +9,27 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.navigation.NavigationBarView
 import com.google.firebase.messaging.FirebaseMessaging
 import dev.hotwire.navigation.activities.HotwireActivity
@@ -35,6 +42,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.io.File
 
 class MainActivity : HotwireActivity() {
 
@@ -48,6 +56,9 @@ class MainActivity : HotwireActivity() {
         private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
         private const val WELCOME_NOTIFICATION_ID = 1001
+        internal const val IMAGE_INTAKE_CAMERA_PREFIX = "image-intake-camera-"
+        private const val IMAGE_INTAKE_CAMERA_SUFFIX = ".jpg"
+        private const val IMAGE_INTAKE_STALE_MS = 24L * 60L * 60L * 1000L
         internal const val EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN =
             "io.blaha.groovitation.extra.DISABLE_STARTUP_PERMISSION_CHAIN"
         internal const val EXTRA_SKIP_LOCATION_PERMISSION_CHAIN =
@@ -90,17 +101,26 @@ class MainActivity : HotwireActivity() {
     private val httpClient = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO)
     private var activeWebFragment: GroovitationWebFragment? = null
+    private var pendingRouteUrl: String? = null
+    private var startupUrlOverride: String? = null
     private lateinit var foregroundLocationManager: io.blaha.groovitation.services.ForegroundLocationManager
     private lateinit var modalAwareBackCallback: OnBackPressedCallback
     private var lastBottomNavPathForTest: String? = null
     private var lastNavUsedClearAll: Boolean = false
     private var lastRoutedUrlForTest: String? = null
+    private var pendingFileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingCameraCapture: PendingCameraCapture? = null
+    private var activeImageIntakeDialog: BottomSheetDialog? = null
     private val nativeGoogleSignInCoordinator by lazy {
         NativeGoogleSignInCoordinator(
             googleIdTokenProvider = CredentialManagerGoogleIdTokenProvider(this),
             nativeGoogleAuthApi = BackendNativeGoogleAuthApi(BuildConfig.BASE_URL, httpClient),
         )
     }
+    private data class PendingCameraCapture(
+        val uri: Uri,
+        val file: File
+    )
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -144,9 +164,35 @@ class MainActivity : HotwireActivity() {
         }
     }
 
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        finishImageChooser(extractFileChooserUris(result.resultCode, result.data))
+    }
+
+    private val photoPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        finishImageChooser(uri?.let { arrayOf(it) })
+    }
+
+    private val takePictureLauncher = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        val capture = pendingCameraCapture
+        pendingCameraCapture = null
+        if (success && capture != null) {
+            finishImageChooser(arrayOf(capture.uri))
+        } else {
+            capture?.file?.delete()
+            finishImageChooser(null)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        startupUrlOverride = resolveStartupUrlOverride(intent)
         setContentView(R.layout.activity_main)
 
         // Pre-cache HTTP Basic Auth credentials so the first WebView request
@@ -293,7 +339,7 @@ class MainActivity : HotwireActivity() {
         return listOf(
             NavigatorConfiguration(
                 name = "main",
-                startLocation = "${BuildConfig.BASE_URL}/",
+                startLocation = startupUrlOverride ?: "${BuildConfig.BASE_URL}/",
                 navigatorHostId = R.id.main_nav_host
             )
         )
@@ -309,8 +355,11 @@ class MainActivity : HotwireActivity() {
             if (!url.isNullOrEmpty()) {
                 Log.d(TAG, "Deep link URL from notification: $url")
                 updateBottomNavForUrl(url)
-                // Navigate the WebView to this URL
-                routeUrl(url)
+                if (url == startupUrlOverride && activeWebFragment == null) {
+                    Log.d(TAG, "Intent URL already selected as start location, skipping duplicate deferred route")
+                } else {
+                    routeUrlWhenReady(url)
+                }
             }
 
             it.data?.let { uri ->
@@ -320,14 +369,20 @@ class MainActivity : HotwireActivity() {
                     val redirect = uri.getQueryParameter("redirect") ?: "/"
                     if (token != null) {
                         Log.d(TAG, "OAuth callback received, authenticating in WebView")
+                        updateBottomNavForPath(redirect)
                         val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=$token&redirect=$redirect&platform=android"
-                        routeUrl(authUrl)
+                        routeUrlWhenReady(authUrl)
                     }
                 } else if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
-                    updateBottomNavForPath(path)
-                    routeUrl(uri.toString())
+                    val oauthRedirectPath = if (path == "/oauth/native-authenticate") {
+                        uri.getQueryParameter("redirect")
+                    } else {
+                        null
+                    }
+                    updateBottomNavForPath(oauthRedirectPath ?: path)
+                    routeUrlWhenReady(uri.toString())
                 }
             }
         }
@@ -350,10 +405,9 @@ class MainActivity : HotwireActivity() {
                     cookieHeader = cookieHeader,
                 )
             ) {
-                is NativeGoogleSignInAction.Navigate -> routeUrl(action.url)
-                is NativeGoogleSignInAction.OpenBrowser -> startActivity(
-                    ExternalBrowserIntentFactory.build(this@MainActivity, action.url),
-                )
+                is NativeGoogleSignInAction.Navigate -> routeUrlWhenReady(action.url)
+                is NativeGoogleSignInAction.OpenBrowser ->
+                    ExternalBrowserIntentFactory.launch(this@MainActivity, action.url)
             }
         }
     }
@@ -388,6 +442,8 @@ class MainActivity : HotwireActivity() {
 
     internal fun lastRoutedUrlForTest(): String? = lastRoutedUrlForTest
 
+    internal fun pendingRouteUrlForTest(): String? = pendingRouteUrl
+
     internal fun bottomNavPathForItemForTest(itemId: Int): String? = bottomNavPathForItem(itemId)
 
     internal fun handleIntentForTest(intent: Intent) {
@@ -406,6 +462,39 @@ class MainActivity : HotwireActivity() {
     private fun routeUrl(url: String) {
         lastRoutedUrlForTest = url
         delegate.currentNavigator?.route(url)
+    }
+
+    private fun routeUrlWhenReady(url: String) {
+        lastRoutedUrlForTest = url
+        if (activeWebFragment == null) {
+            Log.d(TAG, "Web fragment not ready yet, deferring route to $url")
+            pendingRouteUrl = url
+            return
+        }
+
+        val navigator = delegate.currentNavigator
+        if (navigator == null) {
+            Log.d(TAG, "Navigator not ready yet, deferring route to $url")
+            pendingRouteUrl = url
+            return
+        }
+
+        pendingRouteUrl = null
+        navigator.route(url)
+    }
+
+    private fun resolveStartupUrlOverride(intent: Intent?): String? {
+        if (!BuildConfig.DEBUG) return null
+        if (intent?.getBooleanExtra(EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, false) != true) return null
+        return intent.getStringExtra("url")?.takeIf { it.isNotBlank() }
+    }
+
+    private fun flushPendingRouteUrl() {
+        val url = pendingRouteUrl ?: return
+        val navigator = delegate.currentNavigator ?: return
+        Log.d(TAG, "Flushing deferred route to $url")
+        pendingRouteUrl = null
+        navigator.route(url)
     }
 
     private fun requestNotificationPermission(fromWeb: Boolean = false) {
@@ -508,8 +597,152 @@ class MainActivity : HotwireActivity() {
         }
     }
 
+    fun launchImageChooser(
+        filePathCallback: ValueCallback<Array<Uri>>,
+        fileChooserParams: WebChromeClient.FileChooserParams?
+    ): Boolean {
+        cancelPendingImageChooser()
+        pendingFileChooserCallback = filePathCallback
+        cleanupStaleImageIntakeFiles()
+
+        return runCatching {
+            showImageIntakeSheet()
+            true
+        }.getOrElse { error ->
+            Log.e(TAG, "Failed to launch image chooser", error)
+            finishImageChooser(null)
+            false
+        }
+    }
+
+    private fun showImageIntakeSheet() {
+        activeImageIntakeDialog?.dismiss()
+
+        val dialog = BottomSheetDialog(this)
+        val contentView = layoutInflater.inflate(R.layout.dialog_image_intake_options, null)
+        dialog.setContentView(contentView)
+
+        contentView.findViewById<View>(R.id.image_intake_choose_photos).setOnClickListener {
+            dialog.dismiss()
+            launchPhotoPicker()
+        }
+        contentView.findViewById<View>(R.id.image_intake_take_photo).setOnClickListener {
+            dialog.dismiss()
+            launchCameraCapture()
+        }
+        contentView.findViewById<View>(R.id.image_intake_browse_files).setOnClickListener {
+            dialog.dismiss()
+            launchDocumentPicker()
+        }
+
+        dialog.setOnDismissListener {
+            if (activeImageIntakeDialog === dialog) {
+                activeImageIntakeDialog = null
+            }
+        }
+        dialog.setOnCancelListener {
+            if (pendingFileChooserCallback != null) {
+                finishImageChooser(null)
+            }
+        }
+
+        activeImageIntakeDialog = dialog
+        dialog.show()
+    }
+
+    private fun launchPhotoPicker() {
+        photoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+
+    private fun launchDocumentPicker() {
+        val chooserIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        chooserIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        chooserIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
+        fileChooserLauncher.launch(chooserIntent)
+    }
+
+    private fun launchCameraCapture() {
+        val captureFile = File.createTempFile(
+            IMAGE_INTAKE_CAMERA_PREFIX,
+            IMAGE_INTAKE_CAMERA_SUFFIX,
+            cacheDir
+        )
+        val captureUri = FileProvider.getUriForFile(
+            this,
+            "${packageName}.fileprovider",
+            captureFile
+        )
+        pendingCameraCapture = PendingCameraCapture(captureUri, captureFile)
+        takePictureLauncher.launch(captureUri)
+    }
+
+    private fun extractFileChooserUris(
+        resultCode: Int,
+        data: Intent?
+    ): Array<Uri>? {
+        val parsed = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+        if (!parsed.isNullOrEmpty()) return parsed
+        if (resultCode != Activity.RESULT_OK) return null
+
+        val uris = linkedSetOf<Uri>()
+        data?.data?.let(uris::add)
+        data?.clipData?.let { clipData ->
+            for (index in 0 until clipData.itemCount) {
+                clipData.getItemAt(index)?.uri?.let(uris::add)
+            }
+        }
+        return uris.takeIf { it.isNotEmpty() }?.toTypedArray()
+    }
+
+    private fun finishImageChooser(uris: Array<Uri>?) {
+        activeImageIntakeDialog?.dismiss()
+        activeImageIntakeDialog = null
+
+        val callback = pendingFileChooserCallback ?: return
+        pendingFileChooserCallback = null
+
+        uris?.forEach(::persistReadPermissionIfPossible)
+        callback.onReceiveValue(uris)
+    }
+
+    private fun cancelPendingImageChooser() {
+        activeImageIntakeDialog?.dismiss()
+        activeImageIntakeDialog = null
+        pendingCameraCapture?.file?.delete()
+        pendingCameraCapture = null
+        pendingFileChooserCallback?.onReceiveValue(null)
+        pendingFileChooserCallback = null
+    }
+
+    private fun persistReadPermissionIfPossible(uri: Uri) {
+        if (uri.scheme != "content") return
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+    }
+
+    private fun cleanupStaleImageIntakeFiles() {
+        val cutoff = System.currentTimeMillis() - IMAGE_INTAKE_STALE_MS
+        cacheDir.listFiles()?.forEach { file ->
+            val isImageIntakeFile = file.name.startsWith(IMAGE_INTAKE_CAMERA_PREFIX) ||
+                file.name.startsWith(GroovitationWebView.AVATAR_CONVERSION_PREFIX)
+            if (isImageIntakeFile && file.lastModified() < cutoff) {
+                file.delete()
+            }
+        }
+    }
+
     fun registerWebFragment(fragment: GroovitationWebFragment) {
         activeWebFragment = fragment
+        flushPendingRouteUrl()
     }
 
     fun unregisterWebFragment(fragment: GroovitationWebFragment) {

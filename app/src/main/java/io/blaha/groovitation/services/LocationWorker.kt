@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.Settings
 import android.util.Log
-import android.webkit.CookieManager
 import androidx.core.content.ContextCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -74,12 +73,13 @@ class LocationWorker(
         }
 
         fun enqueueOneShot(context: Context) {
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
+            val constraintsBuilder = Constraints.Builder()
+            if (!LocationWorkerTestHooks.enabled) {
+                constraintsBuilder.setRequiredNetworkType(NetworkType.CONNECTED)
+            }
 
             val request = OneTimeWorkRequestBuilder<LocationWorker>()
-                .setConstraints(constraints)
+                .setConstraints(constraintsBuilder.build())
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
@@ -220,11 +220,9 @@ class LocationWorker(
         personUuid: String,
         json: JSONObject
     ) = withContext(Dispatchers.IO) {
-        val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
-            ?: prefs.getString(LocationTrackingService.KEY_SESSION_COOKIE, null)
+        val resolvedCookie = LocationTrackingService.resolveSessionCookie(applicationContext, TAG)
             ?: run {
-                Log.w(TAG, "No session cookie available")
+                Log.w(TAG, "No authenticated session cookie available, skipping background location post")
                 return@withContext
             }
 
@@ -233,16 +231,21 @@ class LocationWorker(
                 .url("${BuildConfig.BASE_URL}/people/$personUuid/location")
                 .post(json.toString().toRequestBody("application/json".toMediaType()))
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Cookie", cookie)
+                .addHeader("Cookie", resolvedCookie.header)
                 .build()
 
-            val response = httpClient.newCall(request).execute()
-            if (response.isSuccessful) {
-                Log.d(TAG, "Location posted successfully")
-            } else {
-                Log.w(TAG, "Failed to post location: ${response.code}")
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Location posted successfully")
+                } else {
+                    Log.w(
+                        TAG,
+                        "Failed to post location: ${response.code} ${response.message} " +
+                            "(cookieSource=${resolvedCookie.source}, " +
+                            "webViewCookies=${resolvedCookie.webViewCookieSummary})"
+                    )
+                }
             }
-            response.close()
         } catch (e: Exception) {
             Log.e(TAG, "Error posting location", e)
         }

@@ -8,7 +8,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
-import android.webkit.CookieManager
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -37,7 +36,6 @@ class ForegroundLocationManager(private val context: Context) {
 
     companion object {
         private const val TAG = "ForegroundLocationMgr"
-        private const val PREFS_NAME = "location_tracking_prefs"
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -149,11 +147,9 @@ class ForegroundLocationManager(private val context: Context) {
     }
 
     private fun postToServer(personUuid: String, location: Location) {
-        val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
-            ?: context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(LocationTrackingService.KEY_SESSION_COOKIE, null)
+        val resolvedCookie = LocationTrackingService.resolveSessionCookie(context, TAG)
             ?: run {
-                Log.w(TAG, "No session cookie available, skipping server post")
+                Log.w(TAG, "No authenticated session cookie available, skipping foreground GPS post")
                 return
             }
 
@@ -174,20 +170,25 @@ class ForegroundLocationManager(private val context: Context) {
                     .url("${BuildConfig.BASE_URL}/people/$personUuid/location")
                     .post(json.toString().toRequestBody("application/json".toMediaType()))
                     .addHeader("Content-Type", "application/json")
-                    .addHeader("Cookie", cookie)
+                    .addHeader("Cookie", resolvedCookie.header)
                     .build()
 
-                val response = httpClient.newCall(request).execute()
-                if (response.isSuccessful) {
-                    Log.d(TAG, "Foreground GPS posted successfully")
-                    // Update the rolling tracking geofence to current position
-                    GeofenceManager(context).registerTrackingGeofence(
-                        location.latitude, location.longitude
-                    )
-                } else {
-                    Log.w(TAG, "Failed to post foreground GPS: ${response.code}")
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Foreground GPS posted successfully")
+                        // Update the rolling tracking geofence to current position
+                        GeofenceManager(context).registerTrackingGeofence(
+                            location.latitude, location.longitude
+                        )
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Failed to post foreground GPS: ${response.code} ${response.message} " +
+                                "(cookieSource=${resolvedCookie.source}, " +
+                                "webViewCookies=${resolvedCookie.webViewCookieSummary})"
+                        )
+                    }
                 }
-                response.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error posting foreground GPS", e)
             }

@@ -4,10 +4,14 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -15,6 +19,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -25,10 +30,14 @@ class MainActivityPermissionBridgeInstrumentedTest {
     private val targetContext: Context = instrumentation.targetContext
     private val probeUrl: String = "${BuildConfig.BASE_URL}/test/permission-bridge"
 
+    @Before
+    fun setUp() {
+        clearFixtureState()
+    }
+
     @After
     fun tearDown() {
-        PermissionBridgeTestHooks.reset()
-        setNotificationPermissionRequested(false)
+        clearFixtureState()
     }
 
     @Test
@@ -174,12 +183,57 @@ class MainActivityPermissionBridgeInstrumentedTest {
     }
 
     private fun launchProbePage(): ActivityScenario<MainActivity> {
+        waitForFixtureBackend(timeoutMs = 30_000)
         val intent = Intent(targetContext, MainActivity::class.java).apply {
             putExtra("url", probeUrl)
             putExtra(MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, true)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         return ActivityScenario.launch(intent)
+    }
+
+    private fun clearFixtureState() {
+        PermissionBridgeTestHooks.reset()
+        setNotificationPermissionRequested(false)
+        targetContext.getSharedPreferences("groovitation_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+
+        instrumentation.runOnMainSync {
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.removeAllCookies(null)
+            cookieManager.flush()
+            WebStorage.getInstance().deleteAllData()
+        }
+    }
+
+    private fun waitForFixtureBackend(timeoutMs: Long) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastFailure = "fixture backend was never contacted"
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                val connection = (URL("${BuildConfig.BASE_URL}/healthz").openConnection() as HttpURLConnection)
+                connection.connectTimeout = 2_000
+                connection.readTimeout = 2_000
+                connection.requestMethod = "GET"
+                connection.instanceFollowRedirects = true
+                try {
+                    connection.inputStream.use { input ->
+                        if (connection.responseCode in 200..299 && input.bufferedReader().readText().trim() == "ok") {
+                            return
+                        }
+                        lastFailure = "unexpected healthz response ${connection.responseCode}"
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            } catch (error: Exception) {
+                lastFailure = error.message ?: error::class.java.simpleName
+            }
+            Thread.sleep(250)
+        }
+        throw AssertionError("Timed out waiting for fixture backend at ${BuildConfig.BASE_URL}/healthz ($lastFailure)")
     }
 
     private fun changePermissionsAndWaitForProbe(
@@ -212,10 +266,37 @@ class MainActivityPermissionBridgeInstrumentedTest {
             scenario.onActivity { activity ->
                 found = findWebView(activity.window.decorView.rootView)
             }
-            if (found != null) return found!!
+            if (found != null) {
+                val webView = found!!
+                ensureProbePageLoaded(scenario, webView, timeoutMs = 20_000)
+                return webView
+            }
             Thread.sleep(250)
         }
         throw AssertionError("Timed out waiting for WebView")
+    }
+
+    private fun ensureProbePageLoaded(
+        scenario: ActivityScenario<MainActivity>,
+        webView: WebView,
+        timeoutMs: Long
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastProbe = evaluateProbe(webView)
+        while (System.currentTimeMillis() < deadline) {
+            if (lastProbe.path == "/test/permission-bridge") {
+                return
+            }
+            scenario.onActivity { activity ->
+                activity.handleIntentForTest(
+                    Intent().putExtra("url", "$probeUrl?ci_probe=${System.nanoTime()}")
+                )
+            }
+            instrumentation.waitForIdleSync()
+            Thread.sleep(250)
+            lastProbe = evaluateProbe(webView)
+        }
+        throw AssertionError("Timed out routing to permission bridge. Last probe=$lastProbe")
     }
 
     private fun waitForProbe(

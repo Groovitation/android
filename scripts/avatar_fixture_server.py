@@ -174,6 +174,18 @@ def render_account_page(state: dict[str, object]) -> bytes:
       .meta {{
         margin-top: 16px;
       }}
+      #avatar-input-label {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 20px;
+        min-height: 52px;
+        padding: 0 20px;
+        border-radius: 14px;
+        background: #eef3ff;
+        color: #1257d6;
+        font-weight: 700;
+      }}
       #avatar-input {{
         display: block;
         width: 100%;
@@ -206,7 +218,7 @@ def render_account_page(state: dict[str, object]) -> bytes:
         <p class="hint">Choose a supported image file to replace the avatar.</p>
       </div>
       <form id="avatar-form" action="/users/avatar" method="post" enctype="multipart/form-data">
-        <label for="avatar-input">Avatar</label>
+        <label id="avatar-input-label" for="avatar-input">Choose avatar image</label>
         <input id="avatar-input" name="avatar" type="file" accept="image/*" />
         <input id="avatar-save" type="submit" value="Upload" />
       </form>

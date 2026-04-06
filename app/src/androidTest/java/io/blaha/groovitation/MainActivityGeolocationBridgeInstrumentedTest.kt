@@ -5,6 +5,7 @@ import android.content.Intent
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -19,6 +20,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MainActivityGeolocationBridgeInstrumentedTest {
+
+    private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
     @get:Rule
     val locationPermissionRule: GrantPermissionRule = GrantPermissionRule.grant(
@@ -86,7 +89,7 @@ class MainActivityGeolocationBridgeInstrumentedTest {
 
     private fun launchGeolocationScenario(): ActivityScenario<MainActivity> {
         val intent = Intent(
-            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext,
+            instrumentation.targetContext,
             MainActivity::class.java
         ).apply {
             putExtra(MainActivity.EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, true)
