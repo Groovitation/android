@@ -2,11 +2,11 @@ package io.blaha.groovitation
 
 import android.Manifest
 import android.content.Intent
-import android.os.Build
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -14,7 +14,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -23,11 +23,11 @@ class MainActivityGeolocationBridgeInstrumentedTest {
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
-    @Before
-    fun setUp() {
-        grantLocationPermissions()
-        GeolocationTestHooks.reset()
-    }
+    @get:Rule
+    val locationPermissionRule: GrantPermissionRule = GrantPermissionRule.grant(
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    )
 
     @After
     fun tearDown() {
@@ -96,28 +96,6 @@ class MainActivityGeolocationBridgeInstrumentedTest {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return ActivityScenario.launch(intent)
-    }
-
-    private fun grantLocationPermissions() {
-        val packageName = instrumentation.targetContext.packageName
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            instrumentation.uiAutomation.grantRuntimePermission(
-                packageName,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            )
-            instrumentation.uiAutomation.grantRuntimePermission(
-                packageName,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-        } else {
-            instrumentation.uiAutomation.executeShellCommand(
-                "pm grant $packageName ${Manifest.permission.ACCESS_FINE_LOCATION}"
-            ).close()
-            instrumentation.uiAutomation.executeShellCommand(
-                "pm grant $packageName ${Manifest.permission.ACCESS_COARSE_LOCATION}"
-            ).close()
-        }
-        instrumentation.waitForIdleSync()
     }
 
     private fun waitForWebView(
