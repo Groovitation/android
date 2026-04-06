@@ -69,6 +69,18 @@ class LocationTrackingService : Service() {
             }
         }
 
+        fun storeSessionCookie(
+            context: Context,
+            cookieHeader: String,
+            callerTag: String = TAG
+        ): Boolean {
+            val stored = refreshStoredSessionCookie(context, cookieHeader, callerTag)
+            if (stored) {
+                Log.d(callerTag, "Stored authenticated session cookie from JS bridge")
+            }
+            return stored
+        }
+
         internal fun resolveSessionCookie(context: Context, callerTag: String): ResolvedSessionCookie? {
             val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val webViewCookie = currentWebViewCookie(callerTag)

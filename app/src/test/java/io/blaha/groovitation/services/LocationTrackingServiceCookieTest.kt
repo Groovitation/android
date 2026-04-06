@@ -104,6 +104,19 @@ class LocationTrackingServiceCookieTest {
         )
     }
 
+    @Test
+    fun storeSessionCookiePersistsOnlyAuthenticatedSessionCookie() {
+        LocationTrackingService.storeSessionCookie(
+            context,
+            "cf_clearance=cloudflare; _user_interface_session=pushed-session; remember_user_token=abc"
+        )
+
+        assertEquals(
+            "_user_interface_session=pushed-session",
+            testPrefs().getString(LocationTrackingService.KEY_SESSION_COOKIE, null)
+        )
+    }
+
     private fun testPrefs() = context.getSharedPreferences(
         "location_tracking_prefs",
         Context.MODE_PRIVATE
