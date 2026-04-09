@@ -86,6 +86,7 @@ class IncomingPushNotificationNotifier(
             notificationId,
             push.buildTapIntent(context),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            NotificationTapActivityStart.creatorOptions(),
         )
 
         val notification = NotificationCompat.Builder(context, push.channel)

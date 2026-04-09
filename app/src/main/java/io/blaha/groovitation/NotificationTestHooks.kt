@@ -103,7 +103,12 @@ object NotificationTestHooks {
             ?: return "missing"
         val contentIntent = activeNotification.notification.contentIntent ?: return "no-pending-intent"
         return try {
-            contentIntent.send()
+            val senderOptions = NotificationTapActivityStart.senderOptions()
+            if (senderOptions == null) {
+                contentIntent.send()
+            } else {
+                contentIntent.send(context, 0, null, null, null, null, senderOptions)
+            }
             "tapped"
         } catch (e: PendingIntent.CanceledException) {
             Log.w(TAG, "Notification PendingIntent was canceled", e)

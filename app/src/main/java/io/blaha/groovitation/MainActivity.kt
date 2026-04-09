@@ -564,7 +564,8 @@ class MainActivity : HotwireActivity() {
             this,
             0,
             mapIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            NotificationTapActivityStart.creatorOptions()
         )
 
         val notification = NotificationCompat.Builder(this, GroovitationApplication.CHANNEL_DEFAULT)
