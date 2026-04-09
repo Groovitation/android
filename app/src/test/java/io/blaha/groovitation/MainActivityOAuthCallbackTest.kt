@@ -29,6 +29,27 @@ class MainActivityOAuthCallbackTest {
     }
 
     @Test
+    fun customSchemeOauthLinkCallbackSelectsAccountTab() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+
+        activity.handleIntentForTest(
+            Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("groovitation://oauth-callback?token=test-token&redirect=%2Fusers%2Fedit")
+            )
+        )
+
+        assertEquals(
+            "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=test-token&redirect=/users/edit&platform=android",
+            activity.lastRoutedUrlForTest()
+        )
+        assertEquals(
+            R.id.nav_account,
+            activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottom_navigation).selectedItemId
+        )
+    }
+
+    @Test
     fun httpsAppLinkOauthCallbackRoutesToNativeAuthenticateAndSelectsEventsTab() {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
         val appLinkUrl = "https://groovitation.blaha.io/oauth/native-authenticate?token=test-token&redirect=%2F&platform=android"
