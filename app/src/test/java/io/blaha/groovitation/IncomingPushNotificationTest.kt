@@ -1,9 +1,11 @@
 package io.blaha.groovitation
 
 import android.app.Application
+import android.app.ActivityOptions
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Intent
+import android.os.Bundle
 import androidx.test.core.app.ApplicationProvider
 import com.google.firebase.messaging.RemoteMessage
 import org.junit.Assert.assertEquals
@@ -11,10 +13,12 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class IncomingPushNotificationTest {
 
     @Test
@@ -79,12 +83,14 @@ class IncomingPushNotificationTest {
         assertEquals("CI Push", notification.extras.getString(Notification.EXTRA_TITLE))
         assertEquals("Tap to open map", notification.extras.getString(Notification.EXTRA_TEXT))
 
-        val tapIntent = shadowOf(notification.contentIntent).savedIntent
+        val shadowPendingIntent = shadowOf(notification.contentIntent)
+        val tapIntent = shadowPendingIntent.savedIntent
         assertEquals(MainActivity::class.java.name, tapIntent.component?.className)
         assertEquals(
             "${BuildConfig.BASE_URL}/map?push_ci=1",
             tapIntent.getStringExtra(IncomingPushNotification.EXTRA_URL)
         )
+        assertBundleMatches(expectedCreatorOptions(), shadowPendingIntent.options)
     }
 
     @Test
@@ -116,5 +122,32 @@ class IncomingPushNotificationTest {
             "${BuildConfig.BASE_URL}/map?push_ci=1",
             startedIntent.getStringExtra(IncomingPushNotification.EXTRA_URL)
         )
+    }
+
+    @Test
+    fun notificationTapActivityStartHelpersUseBackgroundStartAllowedMode() {
+        assertBundleMatches(expectedCreatorOptions(), NotificationTapActivityStart.creatorOptions())
+        assertBundleMatches(expectedSenderOptions(), NotificationTapActivityStart.senderOptions())
+    }
+
+    private fun expectedCreatorOptions() = ActivityOptions.makeBasic()
+        .setPendingIntentCreatorBackgroundActivityStartMode(
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+        )
+        .toBundle()
+
+    private fun expectedSenderOptions() = ActivityOptions.makeBasic()
+        .setPendingIntentBackgroundActivityStartMode(
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+        )
+        .toBundle()
+
+    private fun assertBundleMatches(expected: Bundle, actual: Bundle?) {
+        assertNotNull(actual)
+        val resolved = actual!!
+        assertEquals(expected.keySet(), resolved.keySet())
+        expected.keySet().forEach { key ->
+            assertEquals(expected.get(key), resolved.get(key))
+        }
     }
 }

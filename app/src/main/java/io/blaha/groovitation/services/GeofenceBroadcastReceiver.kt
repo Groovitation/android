@@ -13,6 +13,7 @@ import com.google.android.gms.location.GeofencingEvent
 import io.blaha.groovitation.BuildConfig
 import io.blaha.groovitation.GroovitationApplication
 import io.blaha.groovitation.MainActivity
+import io.blaha.groovitation.NotificationTapActivityStart
 import io.blaha.groovitation.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -133,7 +134,8 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             context,
             geofenceId.hashCode(),
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            NotificationTapActivityStart.creatorOptions()
         )
 
         val notification = NotificationCompat.Builder(context, GroovitationApplication.CHANNEL_PLACES)
