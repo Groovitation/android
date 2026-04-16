@@ -2,6 +2,9 @@ package io.blaha.groovitation
 
 import android.Manifest
 import android.content.Intent
+import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
+import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -11,6 +14,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -29,8 +33,15 @@ class MainActivityGeolocationBridgeInstrumentedTest {
         Manifest.permission.ACCESS_COARSE_LOCATION
     )
 
+    @Before
+    fun setUp() {
+        clearWebViewLocationState()
+        GeolocationTestHooks.reset()
+    }
+
     @After
     fun tearDown() {
+        clearWebViewLocationState()
         GeolocationTestHooks.reset()
     }
 
@@ -298,6 +309,15 @@ class MainActivityGeolocationBridgeInstrumentedTest {
                 value
             }
         }.getOrNull()
+    }
+
+    private fun clearWebViewLocationState() {
+        instrumentation.runOnMainSync {
+            CookieManager.getInstance().removeAllCookies(null)
+            CookieManager.getInstance().flush()
+            WebStorage.getInstance().deleteAllData()
+            GeolocationPermissions.getInstance().clearAll()
+        }
     }
 
     companion object {
