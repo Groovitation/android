@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -46,6 +47,27 @@ class GeofenceManager(private val context: Context) {
         // NEVER_EXPIRE: geofences persist until explicitly removed or device reboot.
         // BootReceiver + LocationWorker time-based refresh handle re-registration.
         private const val GEOFENCE_EXPIRATION_MS = Geofence.NEVER_EXPIRE
+
+        internal fun refreshRemovalIds(interestIds: Set<String>): List<String> =
+            interestIds
+                .filter { it.isNotBlank() && it != TRACKING_GEOFENCE_ID }
+                .distinct()
+
+        internal fun fullResetRemovalIds(interestIds: Set<String>): List<String> =
+            (refreshRemovalIds(interestIds) + TRACKING_GEOFENCE_ID).distinct()
+
+        internal fun clearInterestGeofencePrefs(editor: SharedPreferences.Editor) {
+            editor
+                .remove(KEY_GEOFENCE_IDS)
+                .remove(KEY_GEOFENCE_METADATA)
+        }
+
+        internal fun clearAllGeofencePrefs(editor: SharedPreferences.Editor) {
+            clearInterestGeofencePrefs(editor)
+            editor
+                .remove(KEY_TRACKING_LAT)
+                .remove(KEY_TRACKING_LNG)
+        }
     }
 
     private val geofencingClient: GeofencingClient =
@@ -116,8 +138,9 @@ class GeofenceManager(private val context: Context) {
             val geofenceData = fetchGeofencesFromServer(lat, lon)
             if (geofenceData.length() == 0) return
 
-            // Remove existing geofences before registering new ones
-            removeAllGeofences()
+            // Keep the rolling tracking geofence alive while replacing
+            // interest geofences, otherwise the background exit-chain dies.
+            removeInterestGeofences()
 
             val geofences = mutableListOf<Geofence>()
             val metadata = JSONObject()
@@ -193,9 +216,7 @@ class GeofenceManager(private val context: Context) {
     fun removeAllGeofences() {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val ids = prefs.getStringSet(KEY_GEOFENCE_IDS, emptySet()) ?: emptySet()
-
-        val allIds = ids.toMutableList()
-        allIds.add(TRACKING_GEOFENCE_ID)
+        val allIds = fullResetRemovalIds(ids)
 
         geofencingClient.removeGeofences(allIds)
             .addOnSuccessListener {
@@ -205,12 +226,30 @@ class GeofenceManager(private val context: Context) {
                 Log.e(TAG, "Failed to remove geofences", e)
             }
 
-        prefs.edit()
-            .remove(KEY_GEOFENCE_IDS)
-            .remove(KEY_GEOFENCE_METADATA)
-            .remove(KEY_TRACKING_LAT)
-            .remove(KEY_TRACKING_LNG)
-            .apply()
+        prefs.edit().apply {
+            clearAllGeofencePrefs(this)
+            apply()
+        }
+    }
+
+    private fun removeInterestGeofences() {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val ids = refreshRemovalIds(prefs.getStringSet(KEY_GEOFENCE_IDS, emptySet()) ?: emptySet())
+
+        if (ids.isNotEmpty()) {
+            geofencingClient.removeGeofences(ids)
+                .addOnSuccessListener {
+                    Log.d(TAG, "Removed ${ids.size} interest geofences")
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Failed to remove interest geofences", e)
+                }
+        }
+
+        prefs.edit().apply {
+            clearInterestGeofencePrefs(this)
+            apply()
+        }
     }
 
     private suspend fun fetchGeofencesFromServer(lat: Double, lon: Double): JSONObject =
