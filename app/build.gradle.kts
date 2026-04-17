@@ -24,8 +24,8 @@ android {
         applicationId = "io.blaha.groovitation"
         minSdk = 28
         targetSdk = 35
-        versionCode = 126
-        versionName = "1.0.125"
+        versionCode = 127
+        versionName = "1.0.126"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
