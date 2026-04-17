@@ -511,6 +511,21 @@ class GroovitationWebFragment : HotwireWebFragment() {
             val mainActivity = activity as? MainActivity ?: return
             val context = mainActivity.applicationContext
 
+            val warmStartLocation = mainActivity.recentForegroundLocation()
+            if (warmStartLocation != null) {
+                Log.d(
+                    TAG,
+                    "Warm-starting requestFreshLocation from recent foreground fix: " +
+                        "${warmStartLocation.latitude}, ${warmStartLocation.longitude} " +
+                        "(${warmStartLocation.accuracy}m)"
+                )
+                this@GroovitationWebFragment.dispatchLocationEventToWeb(
+                    location = warmStartLocation,
+                    source = "foreground-gps",
+                    warmStart = true
+                )
+            }
+
             GeolocationTestHooks.overrideFreshLocation?.let { testLocation ->
                 Log.d(
                     TAG,
@@ -541,11 +556,11 @@ class GroovitationWebFragment : HotwireWebFragment() {
                 .setDurationMillis(60000L)
                 .build()
 
-            var bestLocation: android.location.Location? = null
-            var dispatchedAny = false
+            var bestLocation: android.location.Location? = warmStartLocation
+            var dispatchedAny = warmStartLocation != null
             var updateCount = 0
-            var lastDispatchedLocation: android.location.Location? = null
-            var lastDispatchMs = 0L
+            var lastDispatchedLocation: android.location.Location? = warmStartLocation
+            var lastDispatchMs = if (warmStartLocation != null) System.currentTimeMillis() else 0L
 
             fun shouldDispatch(location: android.location.Location): Boolean {
                 if (!dispatchedAny) return true
@@ -613,21 +628,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         }
         
         private fun dispatchLocationToWeb(location: android.location.Location) {
-            val script = """
-                window.dispatchEvent(new CustomEvent('groovitation:location', {
-                    detail: {
-                        success: true,
-                        latitude: ${location.latitude},
-                        longitude: ${location.longitude},
-                        accuracy: ${location.accuracy},
-                        altitude: ${if (location.hasAltitude()) location.altitude else "null"}
-                    }
-                }));
-            """.trimIndent()
-            
-            activity?.runOnUiThread {
-                attachedWebView?.evaluateJavascript(script, null)
-            }
+            this@GroovitationWebFragment.dispatchLocationEventToWeb(location)
         }
         
         private fun dispatchLocationError(error: String) {
@@ -707,6 +708,16 @@ class GroovitationWebFragment : HotwireWebFragment() {
      * it to the server (the native code already posted it directly).
      */
     fun dispatchNativeLocationToWeb(location: android.location.Location) {
+        dispatchLocationEventToWeb(location = location, source = "foreground-gps")
+    }
+
+    private fun dispatchLocationEventToWeb(
+        location: android.location.Location,
+        source: String? = null,
+        warmStart: Boolean = false
+    ) {
+        val sourceField = source?.let { ", source: '$it'" } ?: ""
+        val warmStartField = if (warmStart) ", warmStart: true" else ""
         val script = """
             window.dispatchEvent(new CustomEvent('groovitation:location', {
                 detail: {
@@ -714,8 +725,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
                     latitude: ${location.latitude},
                     longitude: ${location.longitude},
                     accuracy: ${location.accuracy},
-                    altitude: ${if (location.hasAltitude()) location.altitude else "null"},
-                    source: 'foreground-gps'
+                    altitude: ${if (location.hasAltitude()) location.altitude else "null"}$sourceField$warmStartField
                 }
             }));
         """.trimIndent()

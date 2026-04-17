@@ -98,6 +98,48 @@ class MainActivityGeolocationBridgeInstrumentedTest {
         }
     }
 
+    @Test
+    fun recentForegroundFixWarmStartsFreshLocationRequests() {
+        val cachedLocation = GeolocationTestHooks.TestLocation(
+            latitude = 31.7615,
+            longitude = -106.4845,
+            accuracyMeters = 18f
+        )
+        GeolocationTestHooks.overrideFreshLocation = GeolocationTestHooks.TestLocation(
+            latitude = 31.9001,
+            longitude = -106.2002,
+            accuracyMeters = 6f
+        )
+
+        launchGeolocationScenario().use { scenario ->
+            scenario.onActivity { activity ->
+                activity.recordForegroundLocation(cachedLocation.toAndroidLocation("foreground-cache-test"))
+            }
+
+            val webView = waitForWebView(scenario, timeoutMs = 45_000)
+            assertNotNull("Expected a WebView in MainActivity for geolocation bridge test", webView)
+
+            loadHarnessPage(webView!!)
+            waitForHarnessBridge(webView, timeoutMs = 20_000)
+
+            triggerFreshLocationProbe(webView)
+            val locationProbe = waitForJsonProbe(
+                webView,
+                "window.__nativeFreshLocationProbe",
+                timeoutMs = 10_000
+            )
+            assertTrue(
+                "Expected native fresh location probe to report success=true, probe=$locationProbe",
+                locationProbe.optBoolean("success", false)
+            )
+            assertEquals(cachedLocation.latitude, locationProbe.getDouble("latitude"), 0.0001)
+            assertEquals(cachedLocation.longitude, locationProbe.getDouble("longitude"), 0.0001)
+            assertEquals(cachedLocation.accuracyMeters.toDouble(), locationProbe.getDouble("accuracy"), 0.0001)
+            assertEquals("foreground-gps", locationProbe.optString("source"))
+            assertTrue(locationProbe.optBoolean("warmStart", false))
+        }
+    }
+
     private fun launchGeolocationScenario(): ActivityScenario<MainActivity> {
         val intent = Intent(
             instrumentation.targetContext,
@@ -223,7 +265,9 @@ class MainActivityGeolocationBridgeInstrumentedTest {
                   success: !!event.detail.success,
                   latitude: event.detail.latitude,
                   longitude: event.detail.longitude,
-                  accuracy: event.detail.accuracy
+                  accuracy: event.detail.accuracy,
+                  source: event.detail.source,
+                  warmStart: !!event.detail.warmStart
                 };
                 window.removeEventListener('groovitation:location', handler);
               });

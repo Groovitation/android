@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.location.Location
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -55,6 +56,7 @@ class MainActivity : HotwireActivity() {
         private const val KEY_LAST_SEEN_APP_VERSION_CODE = "last_seen_app_version_code"
         private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
+        internal const val RECENT_FOREGROUND_LOCATION_MAX_AGE_MS = 120_000L
         private const val WELCOME_NOTIFICATION_ID = 1001
         internal const val IMAGE_INTAKE_CAMERA_PREFIX = "image-intake-camera-"
         private const val IMAGE_INTAKE_CAMERA_SUFFIX = ".jpg"
@@ -108,6 +110,8 @@ class MainActivity : HotwireActivity() {
     private var lastBottomNavPathForTest: String? = null
     private var lastNavUsedClearAll: Boolean = false
     private var lastRoutedUrlForTest: String? = null
+    private var recentForegroundLocation: Location? = null
+    private var recentForegroundLocationRecordedAtMs: Long = 0L
     private var pendingFileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCapture: PendingCameraCapture? = null
     private var activeImageIntakeDialog: BottomSheetDialog? = null
@@ -320,6 +324,7 @@ class MainActivity : HotwireActivity() {
             // Native foreground GPS — posts directly to server, dispatches to WebView for map
             foregroundLocationManager.requestForegroundFix(
                 webDispatcher = { location ->
+                    recordForegroundLocation(location)
                     activeWebFragment?.dispatchNativeLocationToWeb(location)
                 }
             )
@@ -771,6 +776,20 @@ class MainActivity : HotwireActivity() {
     fun syncPermissionStatesToWeb() {
         dispatchNotificationPermissionState(notificationPermissionState())
         dispatchLocationPermissionState(hasLocationPermission())
+    }
+
+    fun recordForegroundLocation(location: Location) {
+        recentForegroundLocation = Location(location)
+        recentForegroundLocationRecordedAtMs = System.currentTimeMillis()
+    }
+
+    fun recentForegroundLocation(maxAgeMs: Long = RECENT_FOREGROUND_LOCATION_MAX_AGE_MS): Location? {
+        val snapshot = recentForegroundLocation ?: return null
+        val ageMs = System.currentTimeMillis() - recentForegroundLocationRecordedAtMs
+        if (ageMs < 0L || ageMs > maxAgeMs) {
+            return null
+        }
+        return Location(snapshot)
     }
 
     fun currentNotificationPermissionState(): String = notificationPermissionState()
