@@ -446,6 +446,10 @@ class MainActivity : HotwireActivity() {
 
     internal fun bottomNavPathForItemForTest(itemId: Int): String? = bottomNavPathForItem(itemId)
 
+    internal fun hasPendingFileChooserCallbackForTest(): Boolean = pendingFileChooserCallback != null
+
+    internal fun activeImageIntakeDialogForTest(): BottomSheetDialog? = activeImageIntakeDialog
+
     internal fun handleIntentForTest(intent: Intent) {
         handleIntent(intent)
     }
@@ -622,16 +626,20 @@ class MainActivity : HotwireActivity() {
         val dialog = BottomSheetDialog(this)
         val contentView = layoutInflater.inflate(R.layout.dialog_image_intake_options, null)
         dialog.setContentView(contentView)
+        var actionSelected = false
 
         contentView.findViewById<View>(R.id.image_intake_choose_photos).setOnClickListener {
+            actionSelected = true
             dialog.dismiss()
             launchPhotoPicker()
         }
         contentView.findViewById<View>(R.id.image_intake_take_photo).setOnClickListener {
+            actionSelected = true
             dialog.dismiss()
             launchCameraCapture()
         }
         contentView.findViewById<View>(R.id.image_intake_browse_files).setOnClickListener {
+            actionSelected = true
             dialog.dismiss()
             launchDocumentPicker()
         }
@@ -642,7 +650,7 @@ class MainActivity : HotwireActivity() {
             }
         }
         dialog.setOnCancelListener {
-            if (pendingFileChooserCallback != null) {
+            if (!actionSelected && pendingFileChooserCallback != null) {
                 finishImageChooser(null)
             }
         }
