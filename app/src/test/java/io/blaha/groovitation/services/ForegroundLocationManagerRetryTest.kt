@@ -7,18 +7,18 @@ import org.junit.Test
 class ForegroundLocationManagerRetryTest {
 
     @Test
-    fun retryDelayIsScheduledWhenInitialForegroundPostHasNoCookie() {
-        assertEquals(5000L, ForegroundLocationManager.retryDelayMsForMissingCookie(null))
+    fun retryDelayIsScheduledWhenInitialForegroundPostHasNoAuth() {
+        assertEquals(5000L, ForegroundLocationManager.retryDelayMsForMissingAuth(null))
     }
 
     @Test
-    fun retryDelayIsSkippedWhenInitialForegroundPostAlreadyHasCookie() {
-        val resolvedCookie = ResolvedSessionCookie(
-            header = "_user_interface_session=live-session",
-            source = "webview-session",
-            webViewCookieSummary = "[_user_interface_session]"
+    fun retryDelayIsSkippedWhenInitialForegroundPostAlreadyHasAuth() {
+        val resolvedAuth = ResolvedLocationAuth(
+            headerName = LocationTrackingService.LOCATION_TOKEN_HEADER_NAME,
+            headerValue = "native-location-token",
+            source = "stored-location-token"
         )
 
-        assertNull(ForegroundLocationManager.retryDelayMsForMissingCookie(resolvedCookie))
+        assertNull(ForegroundLocationManager.retryDelayMsForMissingAuth(resolvedAuth))
     }
 }

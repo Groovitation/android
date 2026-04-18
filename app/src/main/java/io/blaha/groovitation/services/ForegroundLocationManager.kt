@@ -38,8 +38,8 @@ class ForegroundLocationManager(private val context: Context) {
         private const val TAG = "ForegroundLocationMgr"
         private const val COOKIE_RETRY_DELAY_MS = 5000L
 
-        internal fun retryDelayMsForMissingCookie(resolvedCookie: ResolvedSessionCookie?): Long? {
-            return if (resolvedCookie == null) COOKIE_RETRY_DELAY_MS else null
+        internal fun retryDelayMsForMissingAuth(resolvedAuth: ResolvedLocationAuth?): Long? {
+            return if (resolvedAuth == null) COOKIE_RETRY_DELAY_MS else null
         }
     }
 
@@ -152,14 +152,14 @@ class ForegroundLocationManager(private val context: Context) {
     }
 
     private fun postToServer(personUuid: String, location: Location, attempt: Int = 0) {
-        val resolvedCookie = LocationTrackingService.resolveSessionCookie(context, TAG)
-        if (resolvedCookie == null) {
+        val resolvedAuth = LocationTrackingService.resolveLocationAuth(context, TAG)
+        if (resolvedAuth == null) {
             val retryDelayMs =
-                if (attempt == 0) retryDelayMsForMissingCookie(resolvedCookie) else null
+                if (attempt == 0) retryDelayMsForMissingAuth(resolvedAuth) else null
             if (retryDelayMs != null) {
                 Log.w(
                     TAG,
-                    "No authenticated session cookie available for foreground GPS post; " +
+                    "No native location auth available for foreground GPS post; " +
                         "retrying in ${retryDelayMs}ms"
                 )
                 Handler(Looper.getMainLooper()).postDelayed(
@@ -167,7 +167,7 @@ class ForegroundLocationManager(private val context: Context) {
                     retryDelayMs
                 )
             } else {
-                Log.w(TAG, "No authenticated session cookie available, skipping foreground GPS post")
+                Log.w(TAG, "No native location auth available, skipping foreground GPS post")
             }
             return
         }
@@ -189,7 +189,7 @@ class ForegroundLocationManager(private val context: Context) {
                     .url("${BuildConfig.BASE_URL}/people/$personUuid/location")
                     .post(json.toString().toRequestBody("application/json".toMediaType()))
                     .addHeader("Content-Type", "application/json")
-                    .addHeader("Cookie", resolvedCookie.header)
+                    .addHeader(resolvedAuth.headerName, resolvedAuth.headerValue)
                     .build()
 
                 httpClient.newCall(request).execute().use { response ->
@@ -203,8 +203,8 @@ class ForegroundLocationManager(private val context: Context) {
                         Log.w(
                             TAG,
                             "Failed to post foreground GPS: ${response.code} ${response.message} " +
-                                "(cookieSource=${resolvedCookie.source}, " +
-                                "webViewCookies=${resolvedCookie.webViewCookieSummary})"
+                                "(authSource=${resolvedAuth.source}, " +
+                                "webViewCookies=${resolvedAuth.webViewCookieSummary ?: "n/a"})"
                         )
                     }
                 }

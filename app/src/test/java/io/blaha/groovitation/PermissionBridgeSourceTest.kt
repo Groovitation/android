@@ -23,11 +23,15 @@ class PermissionBridgeSourceTest {
     }
 
     @Test
-    fun groovitationWebFragmentExposesCookieAndDeviceIdBridgeMethods() {
+    fun groovitationWebFragmentExposesLocationAuthAndDeviceIdBridgeMethods() {
         val source = File("src/main/java/io/blaha/groovitation/GroovitationWebFragment.kt").readText()
 
         assertTrue(source.contains("fun setSessionCookie(cookie: String)"))
         assertTrue(source.contains("LocationTrackingService.storeSessionCookie"))
+        assertTrue(source.contains("fun setLocationToken(token: String)"))
+        assertTrue(source.contains("LocationTrackingService.storeLocationToken"))
+        assertTrue(source.contains("fun setSignedInState(signedIn: Boolean)"))
+        assertTrue(source.contains("onSignedInStateFromWeb(signedIn)"))
         assertTrue(source.contains("fun getDeviceId(): String"))
         assertTrue(source.contains("Settings.Secure.ANDROID_ID"))
     }

@@ -254,9 +254,9 @@ class GeofenceManager(private val context: Context) {
 
     private suspend fun fetchGeofencesFromServer(lat: Double, lon: Double): JSONObject =
         withContext(Dispatchers.IO) {
-            val resolvedCookie = LocationTrackingService.resolveSessionCookie(context, TAG)
+            val resolvedAuth = LocationTrackingService.resolveLocationAuth(context, TAG)
                 ?: run {
-                    Log.w(TAG, "No authenticated session cookie available, skipping geofence refresh fetch")
+                    Log.w(TAG, "No native location auth available, skipping geofence refresh fetch")
                     return@withContext JSONObject()
                 }
 
@@ -264,7 +264,7 @@ class GeofenceManager(private val context: Context) {
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .addHeader("Cookie", resolvedCookie.header)
+                .addHeader(resolvedAuth.headerName, resolvedAuth.headerValue)
                 .build()
 
             try {
@@ -276,8 +276,8 @@ class GeofenceManager(private val context: Context) {
                         Log.w(
                             TAG,
                             "Geofences API returned ${response.code} ${response.message} " +
-                                "(cookieSource=${resolvedCookie.source}, " +
-                                "webViewCookies=${resolvedCookie.webViewCookieSummary})"
+                                "(authSource=${resolvedAuth.source}, " +
+                                "webViewCookies=${resolvedAuth.webViewCookieSummary ?: "n/a"})"
                         )
                         JSONObject()
                     }

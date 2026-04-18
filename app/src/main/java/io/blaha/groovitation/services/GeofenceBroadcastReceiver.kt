@@ -161,9 +161,9 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             pendingResult.finish()
             return
         }
-        val resolvedCookie = LocationTrackingService.resolveSessionCookie(context, TAG)
+        val resolvedAuth = LocationTrackingService.resolveLocationAuth(context, TAG)
             ?: run {
-                Log.w(TAG, "No authenticated session cookie available, skipping geofence location post")
+                Log.w(TAG, "No native location auth available, skipping geofence location post")
                 pendingResult.finish()
                 return
             }
@@ -184,7 +184,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     .url("${BuildConfig.BASE_URL}/people/$personUuid/location")
                     .post(json.toString().toRequestBody("application/json".toMediaType()))
                     .addHeader("Content-Type", "application/json")
-                    .addHeader("Cookie", resolvedCookie.header)
+                    .addHeader(resolvedAuth.headerName, resolvedAuth.headerValue)
                     .build()
 
                 httpClient.newCall(request).execute().use { response ->
@@ -194,8 +194,8 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         Log.w(
                             TAG,
                             "Failed to post location: ${response.code} ${response.message} " +
-                                "(cookieSource=${resolvedCookie.source}, " +
-                                "webViewCookies=${resolvedCookie.webViewCookieSummary})"
+                                "(authSource=${resolvedAuth.source}, " +
+                                "webViewCookies=${resolvedAuth.webViewCookieSummary ?: "n/a"})"
                         )
                     }
                 }

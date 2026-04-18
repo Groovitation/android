@@ -377,9 +377,22 @@ class GroovitationWebFragment : HotwireWebFragment() {
 
         @JavascriptInterface
         fun setSessionCookie(cookie: String) {
-            if (cookie.isBlank()) return
             val appContext = activity?.applicationContext ?: return
             LocationTrackingService.storeSessionCookie(appContext, cookie, TAG)
+        }
+
+        @JavascriptInterface
+        fun setLocationToken(token: String) {
+            val appContext = activity?.applicationContext ?: return
+            LocationTrackingService.storeLocationToken(appContext, token, TAG)
+        }
+
+        @JavascriptInterface
+        fun setSignedInState(signedIn: Boolean) {
+            val mainActivity = activity as? MainActivity ?: return
+            activity?.runOnUiThread {
+                mainActivity.onSignedInStateFromWeb(signedIn)
+            }
         }
 
         @JavascriptInterface

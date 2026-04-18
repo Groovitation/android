@@ -14,6 +14,13 @@ internal data class ResolvedSessionCookie(
     val webViewCookieSummary: String
 )
 
+internal data class ResolvedLocationAuth(
+    val headerName: String,
+    val headerValue: String,
+    val source: String,
+    val webViewCookieSummary: String? = null
+)
+
 /**
  * Transition shim for upgrading from foreground service to geofence-based tracking.
  *
@@ -33,8 +40,10 @@ class LocationTrackingService : Service() {
         private const val PREFS_NAME = "location_tracking_prefs"
         private const val KEY_PERSON_UUID = "person_uuid"
         const val KEY_SESSION_COOKIE = "session_cookie"
+        const val KEY_LOCATION_TOKEN = "location_token"
         private const val KEY_ENABLED = "tracking_enabled"
         private const val SESSION_COOKIE_NAME = "_user_interface_session"
+        const val LOCATION_TOKEN_HEADER_NAME = "X-Groovitation-Location-Token"
 
         const val ACTION_START = "io.blaha.groovitation.START_LOCATION_TRACKING"
         const val ACTION_STOP = "io.blaha.groovitation.STOP_LOCATION_TRACKING"
@@ -74,11 +83,56 @@ class LocationTrackingService : Service() {
             cookieHeader: String,
             callerTag: String = TAG
         ): Boolean {
+            if (cookieHeader.isBlank()) {
+                clearStoredSessionCookie(context)
+                Log.d(callerTag, "Cleared stored authenticated session cookie from JS bridge")
+                return false
+            }
             val stored = refreshStoredSessionCookie(context, cookieHeader, callerTag)
             if (stored) {
                 Log.d(callerTag, "Stored authenticated session cookie from JS bridge")
             }
             return stored
+        }
+
+        fun storeLocationToken(
+            context: Context,
+            token: String,
+            callerTag: String = TAG
+        ): Boolean {
+            val normalizedToken = token.trim()
+            val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            return if (normalizedToken.isEmpty()) {
+                prefs.edit().remove(KEY_LOCATION_TOKEN).apply()
+                Log.d(callerTag, "Cleared stored native location token from JS bridge")
+                false
+            } else {
+                prefs.edit().putString(KEY_LOCATION_TOKEN, normalizedToken).apply()
+                Log.d(callerTag, "Stored native location token from JS bridge")
+                true
+            }
+        }
+
+        internal fun resolveLocationAuth(context: Context, callerTag: String): ResolvedLocationAuth? {
+            val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            val webViewCookie = currentWebViewCookie(callerTag)
+            val storedSessionCookie = extractSessionCookie(
+                prefs.getString(KEY_SESSION_COOKIE, null)
+            )
+            val storedLocationToken = prefs.getString(KEY_LOCATION_TOKEN, null)
+
+            val resolved = resolveLocationAuthFromSources(
+                storedLocationToken = storedLocationToken,
+                webViewCookie = webViewCookie,
+                storedSessionCookie = storedSessionCookie
+            )
+            if (resolved == null) {
+                Log.w(
+                    callerTag,
+                    "No location auth available. webViewCookies=${describeCookieNames(webViewCookie)}"
+                )
+            }
+            return resolved
         }
 
         internal fun resolveSessionCookie(context: Context, callerTag: String): ResolvedSessionCookie? {
@@ -167,6 +221,31 @@ class LocationTrackingService : Service() {
             }
         }
 
+        internal fun resolveLocationAuthFromSources(
+            storedLocationToken: String?,
+            webViewCookie: String?,
+            storedSessionCookie: String?
+        ): ResolvedLocationAuth? {
+            val normalizedToken = storedLocationToken?.trim()?.takeIf { it.isNotEmpty() }
+            if (normalizedToken != null) {
+                return ResolvedLocationAuth(
+                    headerName = LOCATION_TOKEN_HEADER_NAME,
+                    headerValue = normalizedToken,
+                    source = "stored-location-token"
+                )
+            }
+
+            val resolvedCookie = resolveSessionCookieFromSources(webViewCookie, storedSessionCookie)
+                ?: return null
+
+            return ResolvedLocationAuth(
+                headerName = "Cookie",
+                headerValue = resolvedCookie.header,
+                source = "session-cookie:${resolvedCookie.source}",
+                webViewCookieSummary = resolvedCookie.webViewCookieSummary
+            )
+        }
+
         internal fun extractSessionCookie(cookieHeader: String?): String? {
             return parseCookiePairs(cookieHeader)[SESSION_COOKIE_NAME]
         }
@@ -174,6 +253,13 @@ class LocationTrackingService : Service() {
         internal fun describeCookieNames(cookieHeader: String?): String {
             val names = parseCookiePairs(cookieHeader).keys
             return if (names.isEmpty()) "none" else names.joinToString(prefix = "[", postfix = "]")
+        }
+
+        private fun clearStoredSessionCookie(context: Context) {
+            context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .remove(KEY_SESSION_COOKIE)
+                .apply()
         }
 
         private fun currentWebViewCookie(callerTag: String): String? {
