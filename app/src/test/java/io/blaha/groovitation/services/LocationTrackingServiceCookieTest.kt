@@ -117,6 +117,36 @@ class LocationTrackingServiceCookieTest {
         )
     }
 
+    @Test
+    fun storeLocationTokenPersistsAndBeatsCookieFallbackForBackgroundAuth() {
+        LocationTrackingService.storeLocationToken(context, "native-location-token")
+
+        val resolved = LocationTrackingService.resolveLocationAuthFromSources(
+            storedLocationToken = testPrefs().getString(LocationTrackingService.KEY_LOCATION_TOKEN, null),
+            webViewCookie = "cf_clearance=cloudflare",
+            storedSessionCookie = "_user_interface_session=stored-session"
+        )
+
+        assertNotNull(resolved)
+        assertEquals(LocationTrackingService.LOCATION_TOKEN_HEADER_NAME, resolved?.headerName)
+        assertEquals("native-location-token", resolved?.headerValue)
+        assertEquals("stored-location-token", resolved?.source)
+    }
+
+    @Test
+    fun blankBridgeValuesClearStoredSessionCookieAndLocationToken() {
+        testPrefs().edit()
+            .putString(LocationTrackingService.KEY_SESSION_COOKIE, "_user_interface_session=stored-session")
+            .putString(LocationTrackingService.KEY_LOCATION_TOKEN, "stored-location-token")
+            .commit()
+
+        LocationTrackingService.storeSessionCookie(context, "")
+        LocationTrackingService.storeLocationToken(context, "")
+
+        assertNull(testPrefs().getString(LocationTrackingService.KEY_SESSION_COOKIE, null))
+        assertNull(testPrefs().getString(LocationTrackingService.KEY_LOCATION_TOKEN, null))
+    }
+
     private fun testPrefs() = context.getSharedPreferences(
         "location_tracking_prefs",
         Context.MODE_PRIVATE

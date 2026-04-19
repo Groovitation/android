@@ -997,6 +997,15 @@ class MainActivity : HotwireActivity() {
         registerFcmTokenWithServer()
     }
 
+    fun onSignedInStateFromWeb(signedIn: Boolean) {
+        if (signedIn) return
+
+        Log.d(TAG, "Signed-out state received from web, stopping background tracking")
+        LocationWorker.cancel(this)
+        GeofenceManager(this).removeAllGeofences()
+        LocationTrackingService.clearConfig(this)
+    }
+
     /**
      * Called by LocationComponent when the web app provides the person UUID
      * via bridge message. Saves config and tries to start tracking.

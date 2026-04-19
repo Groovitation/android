@@ -220,9 +220,9 @@ class LocationWorker(
         personUuid: String,
         json: JSONObject
     ) = withContext(Dispatchers.IO) {
-        val resolvedCookie = LocationTrackingService.resolveSessionCookie(applicationContext, TAG)
+        val resolvedAuth = LocationTrackingService.resolveLocationAuth(applicationContext, TAG)
             ?: run {
-                Log.w(TAG, "No authenticated session cookie available, skipping background location post")
+                Log.w(TAG, "No native location auth available, skipping background location post")
                 return@withContext
             }
 
@@ -231,21 +231,21 @@ class LocationWorker(
                 .url("${BuildConfig.BASE_URL}/people/$personUuid/location")
                 .post(json.toString().toRequestBody("application/json".toMediaType()))
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Cookie", resolvedCookie.header)
+                .addHeader(resolvedAuth.headerName, resolvedAuth.headerValue)
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     Log.d(TAG, "Location posted successfully")
                 } else {
-                    Log.w(
-                        TAG,
-                        "Failed to post location: ${response.code} ${response.message} " +
-                            "(cookieSource=${resolvedCookie.source}, " +
-                            "webViewCookies=${resolvedCookie.webViewCookieSummary})"
-                    )
+                        Log.w(
+                            TAG,
+                            "Failed to post location: ${response.code} ${response.message} " +
+                            "(authSource=${resolvedAuth.source}, " +
+                            "webViewCookies=${resolvedAuth.webViewCookieSummary ?: "n/a"})"
+                        )
+                    }
                 }
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Error posting location", e)
         }
