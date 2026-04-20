@@ -13,6 +13,7 @@ import android.location.Location
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.webkit.CookieManager
@@ -57,6 +58,7 @@ class MainActivity : HotwireActivity() {
         private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
         internal const val RECENT_FOREGROUND_LOCATION_MAX_AGE_MS = 120_000L
+        internal const val NATIVE_LOCATION_AUTH_REFRESH_DEBOUNCE_MS = 5000L
         private const val WELCOME_NOTIFICATION_ID = 1001
         internal const val IMAGE_INTAKE_CAMERA_PREFIX = "image-intake-camera-"
         private const val IMAGE_INTAKE_CAMERA_SUFFIX = ".jpg"
@@ -93,6 +95,15 @@ class MainActivity : HotwireActivity() {
             if (!BuildConfig.DEBUG) return true
             return intent?.getBooleanExtra(EXTRA_SKIP_LOCATION_PERMISSION_CHAIN, false) != true
         }
+
+        internal fun shouldReplayNativeLocationAfterAuth(
+            lastReplayElapsedMs: Long,
+            nowElapsedMs: Long
+        ): Boolean {
+            if (lastReplayElapsedMs <= 0L) return true
+            val elapsedSinceLastReplay = nowElapsedMs - lastReplayElapsedMs
+            return elapsedSinceLastReplay >= NATIVE_LOCATION_AUTH_REFRESH_DEBOUNCE_MS
+        }
     }
 
     private lateinit var bottomNavigation: BottomNavigationView
@@ -112,6 +123,7 @@ class MainActivity : HotwireActivity() {
     private var lastRoutedUrlForTest: String? = null
     private var recentForegroundLocation: Location? = null
     private var recentForegroundLocationRecordedAtMs: Long = 0L
+    private var lastNativeLocationAuthReplayElapsedMs: Long = 0L
     private var pendingFileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCapture: PendingCameraCapture? = null
     private var activeImageIntakeDialog: BottomSheetDialog? = null
@@ -320,18 +332,7 @@ class MainActivity : HotwireActivity() {
         LocationTrackingService.refreshCookie(this)
         syncPermissionStatesToWeb()
         tryStartBackgroundTracking()
-        if (hasLocationPermission()) {
-            // Native foreground GPS — posts directly to server, dispatches to WebView for map
-            foregroundLocationManager.requestForegroundFix(
-                webDispatcher = { location ->
-                    recordForegroundLocation(location)
-                    activeWebFragment?.dispatchNativeLocationToWeb(location)
-                }
-            )
-            // Ensure map scripts that listen for fresh native location events
-            // receive an immediate resume-time update request as well.
-            activeWebFragment?.requestFreshLocationOnResume()
-        }
+        requestNativeForegroundLocation()
         checkForAppUpdate()
     }
 
@@ -792,6 +793,31 @@ class MainActivity : HotwireActivity() {
         return Location(snapshot)
     }
 
+    fun onNativeLocationAuthReadyFromWeb() {
+        if (LocationTrackingService.getPersonUuid(this) == null) {
+            Log.d(TAG, "Ignoring native auth replay without personUuid")
+            return
+        }
+
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        if (!shouldReplayNativeLocationAfterAuth(lastNativeLocationAuthReplayElapsedMs, nowElapsedMs)) {
+            Log.d(TAG, "Skipping duplicate native auth replay trigger")
+            return
+        }
+        lastNativeLocationAuthReplayElapsedMs = nowElapsedMs
+
+        Log.d(TAG, "Native location auth synced from web, replaying native location work")
+        tryStartBackgroundTracking()
+
+        if (hasLocationPermission()) {
+            val replayedRecentFix =
+                foregroundLocationManager.postRecentForegroundLocationIfFresh(recentForegroundLocation())
+            if (!replayedRecentFix) {
+                requestNativeForegroundLocation()
+            }
+        }
+    }
+
     fun currentNotificationPermissionState(): String = notificationPermissionState()
 
     private fun notificationPermissionState(): String {
@@ -1004,6 +1030,21 @@ class MainActivity : HotwireActivity() {
         LocationWorker.cancel(this)
         GeofenceManager(this).removeAllGeofences()
         LocationTrackingService.clearConfig(this)
+    }
+
+    private fun requestNativeForegroundLocation() {
+        if (hasLocationPermission()) {
+            // Native foreground GPS — posts directly to server, dispatches to WebView for map
+            foregroundLocationManager.requestForegroundFix(
+                webDispatcher = { location ->
+                    recordForegroundLocation(location)
+                    activeWebFragment?.dispatchNativeLocationToWeb(location)
+                }
+            )
+            // Ensure map scripts that listen for fresh native location events
+            // receive an immediate resume-time update request as well.
+            activeWebFragment?.requestFreshLocationOnResume()
+        }
     }
 
     /**
