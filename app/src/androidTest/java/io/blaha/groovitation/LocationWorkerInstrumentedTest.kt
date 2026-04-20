@@ -98,7 +98,7 @@ class LocationWorkerInstrumentedTest {
         assertEquals("test-person-uuid", upload.personUuid)
 
         val payload = upload.payload
-        assertEquals("background", payload.getString("source"))
+        assertEquals("background-gps", payload.getString("source"))
         assertEquals("android", payload.getString("deviceType"))
         assertEquals(31.762, payload.getDouble("latitude"), 0.001)
         assertEquals(-106.485, payload.getDouble("longitude"), 0.001)

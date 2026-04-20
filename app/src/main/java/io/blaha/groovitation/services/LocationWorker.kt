@@ -211,7 +211,7 @@ class LocationWorker(
         put("accuracy", accuracy)
         altitude?.let { put("altitude", it) }
         put("deviceType", "android")
-        put("source", "background")
+        put("source", "background-gps")
         put("deviceId", Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID))
         put("timestamp", System.currentTimeMillis())
     }

@@ -28,8 +28,10 @@ class PermissionBridgeSourceTest {
 
         assertTrue(source.contains("fun setSessionCookie(cookie: String)"))
         assertTrue(source.contains("LocationTrackingService.storeSessionCookie"))
+        assertTrue(source.contains("onNativeLocationAuthReadyFromWeb()"))
         assertTrue(source.contains("fun setLocationToken(token: String)"))
         assertTrue(source.contains("LocationTrackingService.storeLocationToken"))
+        assertTrue(source.contains("onNativeLocationAuthReadyFromWeb()"))
         assertTrue(source.contains("fun setSignedInState(signedIn: Boolean)"))
         assertTrue(source.contains("onSignedInStateFromWeb(signedIn)"))
         assertTrue(source.contains("fun getDeviceId(): String"))

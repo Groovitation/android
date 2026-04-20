@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -37,10 +38,35 @@ class ForegroundLocationManager(private val context: Context) {
     companion object {
         private const val TAG = "ForegroundLocationMgr"
         private const val COOKIE_RETRY_DELAY_MS = 5000L
+        private const val FRESH_LOCATION_MAX_AGE_MS = 15_000L
 
         internal fun retryDelayMsForMissingAuth(resolvedAuth: ResolvedLocationAuth?): Long? {
             return if (resolvedAuth == null) COOKIE_RETRY_DELAY_MS else null
         }
+
+        internal fun locationAgeMs(
+            location: Location,
+            nowMs: Long = System.currentTimeMillis(),
+            nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
+        ): Long {
+            val elapsedRealtimeNanos = location.elapsedRealtimeNanos
+            if (elapsedRealtimeNanos > 0L) {
+                val ageNanos = nowElapsedRealtimeNanos - elapsedRealtimeNanos
+                if (ageNanos >= 0L) {
+                    return TimeUnit.NANOSECONDS.toMillis(ageNanos)
+                }
+            }
+
+            val ageMs = nowMs - location.time
+            return if (ageMs >= 0L) ageMs else Long.MAX_VALUE
+        }
+
+        internal fun isFreshEnoughForImmediateUse(
+            location: Location,
+            nowMs: Long = System.currentTimeMillis(),
+            nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
+        ): Boolean =
+            locationAgeMs(location, nowMs, nowElapsedRealtimeNanos) <= FRESH_LOCATION_MAX_AGE_MS
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -93,17 +119,29 @@ class ForegroundLocationManager(private val context: Context) {
             override fun onLocationResult(result: LocationResult) {
                 val location = result.lastLocation ?: return
                 updateCount++
-                Log.d(TAG, "Foreground fix #$updateCount: ${location.latitude}, ${location.longitude} (${location.accuracy}m)")
+                val ageMs = locationAgeMs(location)
+                Log.d(
+                    TAG,
+                    "Foreground fix #$updateCount: ${location.latitude}, ${location.longitude} " +
+                        "(${location.accuracy}m, age=${ageMs}ms)"
+                )
 
-                if (bestLocation == null || location.accuracy < bestLocation!!.accuracy) {
-                    bestLocation = location
+                val isFreshFix = isFreshEnoughForImmediateUse(location)
+                if (isFreshFix) {
+                    if (bestLocation == null || location.accuracy < bestLocation!!.accuracy) {
+                        bestLocation = location
+                    }
+
+                    // Only dispatch fresh native fixes into the WebView. Cached stale
+                    // fused-provider points are what make the app appear "stuck at home"
+                    // until a later open.
+                    webDispatcher?.invoke(location)
+                } else {
+                    Log.d(TAG, "Skipping stale foreground fix for immediate use (${ageMs}ms old)")
                 }
 
-                // Dispatch every fix to WebView for map updates
-                webDispatcher?.invoke(location)
-
                 // Post to server when we get a good fix (<50m) or after 5 updates
-                if (!serverPostSent && (location.accuracy < 50 || updateCount >= 5)) {
+                if (!serverPostSent && bestLocation != null && (bestLocation!!.accuracy < 50 || updateCount >= 5)) {
                     serverPostSent = true
                     val best = bestLocation!!
                     Log.d(TAG, "Posting foreground-gps to server: ${best.latitude}, ${best.longitude} (${best.accuracy}m)")
@@ -111,7 +149,7 @@ class ForegroundLocationManager(private val context: Context) {
                 }
 
                 // Stop when accuracy is good or max updates reached
-                if (location.accuracy < 30 || updateCount >= 15) {
+                if ((bestLocation?.accuracy ?: Float.MAX_VALUE) < 30 || updateCount >= 15) {
                     fusedClient.removeLocationUpdates(this)
                     activeCallback = null
                     if (!serverPostSent) {
@@ -149,6 +187,18 @@ class ForegroundLocationManager(private val context: Context) {
                 }
             }
         }, 35000L)
+    }
+
+    fun postRecentForegroundLocationIfFresh(location: Location?): Boolean {
+        val freshLocation = location?.takeIf { isFreshEnoughForImmediateUse(it) } ?: return false
+        val personUuid = LocationTrackingService.getPersonUuid(context) ?: return false
+        Log.d(
+            TAG,
+            "Replaying recent foreground-gps after auth sync: " +
+                "${freshLocation.latitude}, ${freshLocation.longitude} (${freshLocation.accuracy}m)"
+        )
+        postToServer(personUuid, freshLocation)
+        return true
     }
 
     private fun postToServer(personUuid: String, location: Location, attempt: Int = 0) {
