@@ -325,6 +325,9 @@ class MainActivity : HotwireActivity() {
         // Without this, CookieManager's async background sync may not have
         // completed before Android kills the process on swipe-away.
         CookieManager.getInstance().flush()
+        // Stop continuous foreground tracking when we're no longer visible to
+        // hand back GPS to the OS; the background geofence chain takes over.
+        foregroundLocationManager.stopContinuousTracking()
     }
 
     override fun onResume() {
@@ -1034,13 +1037,18 @@ class MainActivity : HotwireActivity() {
 
     private fun requestNativeForegroundLocation() {
         if (hasLocationPermission()) {
-            // Native foreground GPS — posts directly to server, dispatches to WebView for map
-            foregroundLocationManager.requestForegroundFix(
-                webDispatcher = { location ->
-                    recordForegroundLocation(location)
-                    activeWebFragment?.dispatchNativeLocationToWeb(location)
-                }
-            )
+            val dispatcher: (Location) -> Unit = { location ->
+                recordForegroundLocation(location)
+                activeWebFragment?.dispatchNativeLocationToWeb(location)
+            }
+            // 30-second aggressive one-shot to snap the stored position now.
+            foregroundLocationManager.requestForegroundFix(webDispatcher = dispatcher)
+            // Sustained tracking while the app is in the foreground on any
+            // tab (#706). Without this the landing-page distance went stale
+            // once the one-shot timed out (observed after a 15-minute drive).
+            // Stopped in onPause to hand GPS back to the OS; the background
+            // geofence chain takes over from there.
+            foregroundLocationManager.startContinuousTracking(webDispatcher = dispatcher)
             // Ensure map scripts that listen for fresh native location events
             // receive an immediate resume-time update request as well.
             activeWebFragment?.requestFreshLocationOnResume()

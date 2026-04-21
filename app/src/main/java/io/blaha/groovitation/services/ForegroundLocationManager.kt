@@ -27,11 +27,19 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Aggressive foreground GPS acquisition on app open/resume.
+ * Native foreground GPS acquisition.
+ *
+ * Two modes:
+ *  - `requestForegroundFix` (legacy): 30-second aggressive one-shot on app
+ *    open, used to snap the stored position at resume time.
+ *  - `startContinuousTracking` (#706): sustained tracking while the app is
+ *    in the foreground (regardless of which tab is showing), so the landing
+ *    page sees fresh positions instead of going stale while the user moves.
  *
  * Posts location directly to the server (bypassing WebView) with
  * source="foreground-gps" so the backend gives it strong scoring preference.
- * Also dispatches fixes to the WebView for map UI updates.
+ * Also dispatches fixes to the WebView so web code listening for native
+ * location bridge events can re-rank/re-distance landing cards live.
  */
 class ForegroundLocationManager(private val context: Context) {
 
@@ -39,6 +47,12 @@ class ForegroundLocationManager(private val context: Context) {
         private const val TAG = "ForegroundLocationMgr"
         private const val COOKIE_RETRY_DELAY_MS = 5000L
         private const val FRESH_LOCATION_MAX_AGE_MS = 15_000L
+
+        // Throttle: post to server on first fix, then only when the user has
+        // moved this far OR this much time has passed. Keeps the landing-page
+        // distance honest without hammering the per-user location endpoint.
+        internal const val CONTINUOUS_MIN_POST_INTERVAL_MS = 60_000L
+        internal const val CONTINUOUS_MIN_POST_DISTANCE_M = 50.0
 
         internal fun retryDelayMsForMissingAuth(resolvedAuth: ResolvedLocationAuth?): Long? {
             return if (resolvedAuth == null) COOKIE_RETRY_DELAY_MS else null
@@ -67,6 +81,21 @@ class ForegroundLocationManager(private val context: Context) {
             nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos()
         ): Boolean =
             locationAgeMs(location, nowMs, nowElapsedRealtimeNanos) <= FRESH_LOCATION_MAX_AGE_MS
+
+        /**
+         * Pure decision function for the continuous-mode throttle so the
+         * policy can be unit-tested without the fused provider.
+         */
+        internal fun shouldPostContinuous(
+            candidate: Location,
+            lastPosted: Location?,
+            lastPostedAtMs: Long,
+            nowMs: Long
+        ): Boolean {
+            if (lastPosted == null) return true
+            if (nowMs - lastPostedAtMs >= CONTINUOUS_MIN_POST_INTERVAL_MS) return true
+            return candidate.distanceTo(lastPosted) >= CONTINUOUS_MIN_POST_DISTANCE_M
+        }
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -77,6 +106,9 @@ class ForegroundLocationManager(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.IO)
     private var activeCallback: LocationCallback? = null
+    private var continuousCallback: LocationCallback? = null
+    private var lastContinuousPosted: Location? = null
+    private var lastContinuousPostedAtMs: Long = 0L
 
     /**
      * Request aggressive high-accuracy GPS fix.
@@ -262,6 +294,81 @@ class ForegroundLocationManager(private val context: Context) {
                 Log.e(TAG, "Error posting foreground GPS", e)
             }
         }
+    }
+
+    /**
+     * Begin sustained foreground tracking. Safe to call repeatedly — a
+     * second call replaces the first request. Runs until
+     * `stopContinuousTracking` is called, typically from `onPause`.
+     *
+     * The server post is throttled; the WebView dispatch is not, so the
+     * landing page can re-render every few seconds while the user walks.
+     */
+    fun startContinuousTracking(webDispatcher: ((Location) -> Unit)? = null) {
+        if (!hasLocationPermission()) {
+            Log.d(TAG, "No location permission, skipping continuous tracking")
+            return
+        }
+        val personUuid = LocationTrackingService.getPersonUuid(context)
+        if (personUuid == null) {
+            Log.d(TAG, "No personUuid configured, skipping continuous tracking")
+            return
+        }
+
+        val fusedClient = LocationServices.getFusedLocationProviderClient(context)
+
+        // Cancel any prior continuous request before installing a new one.
+        continuousCallback?.let {
+            fusedClient.removeLocationUpdates(it)
+            continuousCallback = null
+        }
+
+        val request = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            10_000L
+        )
+            .setMinUpdateIntervalMillis(5_000L)
+            .build()
+
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                val location = result.lastLocation ?: return
+                // Same freshness guard as requestForegroundFix: cached fused-
+                // provider points would make the map and landing page look
+                // "stuck at home" even after the user has driven away. Skip
+                // them entirely until we get a real fix.
+                if (!isFreshEnoughForImmediateUse(location)) {
+                    val ageMs = locationAgeMs(location)
+                    Log.d(TAG, "Continuous: skipping stale fix (${ageMs}ms old)")
+                    return
+                }
+                webDispatcher?.invoke(location)
+
+                val nowMs = System.currentTimeMillis()
+                if (shouldPostContinuous(location, lastContinuousPosted, lastContinuousPostedAtMs, nowMs)) {
+                    lastContinuousPosted = location
+                    lastContinuousPostedAtMs = nowMs
+                    postToServer(personUuid, location)
+                }
+            }
+        }
+        continuousCallback = callback
+
+        try {
+            fusedClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
+            Log.d(TAG, "Continuous foreground tracking started")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Location permission denied for continuous tracking", e)
+            continuousCallback = null
+        }
+    }
+
+    fun stopContinuousTracking() {
+        val callback = continuousCallback ?: return
+        val fusedClient = LocationServices.getFusedLocationProviderClient(context)
+        fusedClient.removeLocationUpdates(callback)
+        continuousCallback = null
+        Log.d(TAG, "Continuous foreground tracking stopped")
     }
 
     private fun hasLocationPermission(): Boolean {
