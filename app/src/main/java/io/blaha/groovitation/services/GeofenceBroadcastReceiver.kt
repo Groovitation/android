@@ -4,6 +4,8 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -12,6 +14,7 @@ import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 import io.blaha.groovitation.BuildConfig
 import io.blaha.groovitation.GroovitationApplication
+import io.blaha.groovitation.IncomingPushNotification
 import io.blaha.groovitation.MainActivity
 import io.blaha.groovitation.NotificationTapActivityStart
 import io.blaha.groovitation.R
@@ -23,6 +26,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.net.URL
 import java.util.concurrent.TimeUnit
 
 /**
@@ -86,12 +90,17 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         when (transition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
-                // Tracking geofence is EXIT-only, so ENTER is always an interest geofence
+                // Tracking geofence is EXIT-only, so ENTER is always a proximity
+                // candidate (site or event from today's landing page, #705).
                 for (geofence in triggeringGeofences) {
                     if (geofence.requestId == GeofenceManager.TRACKING_GEOFENCE_ID) continue
-                    val gfMeta = metadata.optJSONObject(geofence.requestId)
-                    val placeName = gfMeta?.optString("placeName", "a place") ?: "a place"
-                    val interestName = gfMeta?.optString("interestName", "") ?: ""
+                    val gfMeta = metadata.optJSONObject(geofence.requestId) ?: JSONObject()
+                    val placeName = gfMeta.optString("placeName", "a place").ifBlank { "a place" }
+                    val interestName = gfMeta.optString("interestName", "")
+                    val targetKind = gfMeta.optString("targetKind", "site")
+                    val targetId = gfMeta.optString("targetId", "")
+                    val imageUrl = gfMeta.optString("imageUrl", "").ifBlank { null }
+                    val deepLink = gfMeta.optString("deepLink", "").ifBlank { null }
 
                     val message = if (interestName.isNotEmpty()) {
                         "You're near $placeName \u2014 matches your interest in $interestName"
@@ -99,7 +108,21 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         "You're near $placeName"
                     }
 
-                    showNotification(context, geofence.requestId, placeName, message)
+                    showNotification(
+                        context,
+                        geofenceId = geofence.requestId,
+                        title = placeName,
+                        message = message,
+                        imageUrl = imageUrl,
+                        deepLink = deepLink
+                    )
+                    // Best-effort dedup ack so the server stops handing us this
+                    // target on subsequent geofence refreshes. A failure here
+                    // (network blip, 401, etc.) is fine: a duplicate notification
+                    // is strictly better than a silent miss.
+                    if (targetKind.isNotBlank() && targetId.isNotBlank()) {
+                        postProximityNotified(context, targetKind, targetId)
+                    }
                 }
 
                 if (location != null) {
@@ -124,10 +147,28 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun showNotification(context: Context, geofenceId: String, title: String, message: String) {
+    private fun showNotification(
+        context: Context,
+        geofenceId: String,
+        title: String,
+        message: String,
+        imageUrl: String? = null,
+        deepLink: String? = null
+    ) {
+        // Deep link falls back to /map if the server didn't supply one (older
+        // builds during a mixed rollout, or a missing field). Normalize the
+        // same way FCM-delivered push notifications do so the MainActivity
+        // intent handler behaves consistently between geofence ENTER and push.
+        val normalizedLink = IncomingPushNotification(
+            title = title,
+            body = message,
+            deepLink = deepLink,
+            channel = GroovitationApplication.CHANNEL_PLACES
+        ).resolvedDeepLink()
+
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("url", "${BuildConfig.BASE_URL}/map")
+            putExtra(IncomingPushNotification.EXTRA_URL, normalizedLink)
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -138,20 +179,85 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             NotificationTapActivityStart.creatorOptions()
         )
 
-        val notification = NotificationCompat.Builder(context, GroovitationApplication.CHANNEL_PLACES)
+        val builder = NotificationCompat.Builder(context, GroovitationApplication.CHANNEL_PLACES)
             .setContentTitle(title)
             .setContentText(message)
             .setSmallIcon(R.drawable.ic_notification)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
+
+        // Load the hero image synchronously on this background thread. The
+        // receiver is already inside goAsync() which extends our lifetime up
+        // to ~10s, so a small HTTPS fetch fits the budget. If it fails we
+        // fall back to the plain-text notification — the feature still works,
+        // we just render the landing-card image when it's available.
+        val bitmap = imageUrl?.let { fetchBitmap(it) }
+        if (bitmap != null) {
+            builder
+                .setLargeIcon(bitmap)
+                .setStyle(
+                    NotificationCompat.BigPictureStyle()
+                        .bigPicture(bitmap)
+                        .bigLargeIcon(null as Bitmap?)
+                )
+        }
 
         val notificationId = NOTIFICATION_ID_BASE + (geofenceId.hashCode() and 0xFFFF)
         try {
-            NotificationManagerCompat.from(context).notify(notificationId, notification)
+            NotificationManagerCompat.from(context).notify(notificationId, builder.build())
         } catch (e: SecurityException) {
             Log.w(TAG, "Missing notification permission", e)
+        }
+    }
+
+    private fun fetchBitmap(rawUrl: String): Bitmap? {
+        return try {
+            val url = URL(rawUrl)
+            url.openConnection().apply {
+                connectTimeout = 4000
+                readTimeout = 4000
+            }.getInputStream().use { stream ->
+                BitmapFactory.decodeStream(stream)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load proximity notification image: $rawUrl", e)
+            null
+        }
+    }
+
+    private fun postProximityNotified(context: Context, targetKind: String, targetId: String) {
+        val resolvedAuth = LocationTrackingService.resolveLocationAuth(context, TAG) ?: run {
+            Log.w(TAG, "No auth available for proximity/notified ack; skipping")
+            return
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val body = JSONObject().apply {
+                    put("targetKind", targetKind)
+                    put("targetId", targetId)
+                }
+                val request = Request.Builder()
+                    .url("${BuildConfig.BASE_URL}/api/proximity/notified")
+                    .post(body.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader(resolvedAuth.headerName, resolvedAuth.headerValue)
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Proximity notified ack: $targetKind/$targetId")
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Proximity notified ack failed: ${response.code} ${response.message}"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error posting proximity/notified for $targetKind/$targetId", e)
+            }
         }
     }
 

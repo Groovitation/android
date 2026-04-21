@@ -154,6 +154,16 @@ class GeofenceManager(private val context: Context) {
                 val radius = gf.getDouble("radiusMeters").toFloat()
                 val placeName = gf.optString("placeName", "")
                 val interestName = gf.optString("interestName", "")
+                // #705 proximity-notification fields. Older server builds omit
+                // these — missing values fall back to "site"/place id so the
+                // existing interest-notification path still works on rollback.
+                val targetKind = gf.optString("targetKind", gf.optString("type", "site"))
+                val targetId = gf.optString("targetId", "")
+                val imageUrl = if (gf.has("imageUrl") && !gf.isNull("imageUrl"))
+                    gf.optString("imageUrl", "")
+                else ""
+                val deepLink = gf.optString("deepLink", "")
+                val score = gf.optDouble("score", 0.0)
 
                 geofences.add(
                     Geofence.Builder()
@@ -166,12 +176,21 @@ class GeofenceManager(private val context: Context) {
                         .build()
                 )
 
-                // Cache metadata for the broadcast receiver
+                // Cache metadata for the broadcast receiver. Keep the legacy
+                // placeName/interestName/lat/lng keys so older receivers still
+                // work during a mixed rollout; add targetKind/targetId/imageUrl/
+                // deepLink/score/radiusMeters for the rich-notification path.
                 metadata.put(id, JSONObject().apply {
                     put("placeName", placeName)
                     put("interestName", interestName)
                     put("latitude", latitude)
                     put("longitude", longitude)
+                    put("targetKind", targetKind)
+                    put("targetId", targetId)
+                    put("imageUrl", imageUrl)
+                    put("deepLink", deepLink)
+                    put("score", score)
+                    put("radiusMeters", radius.toDouble())
                 })
             }
 
