@@ -17,7 +17,7 @@ class NativeGoogleSignInCoordinatorTest {
                     idToken: String,
                     returnUrl: String,
                     cookieHeader: String?,
-                ): NativeGoogleAuthResult? = NativeGoogleAuthResult("https://groovitation.blaha.io/oauth/native-authenticate?token=abc")
+                ): NativeGoogleAuthResult? = NativeGoogleAuthResult("https://groovitation.blaha.io/oauth/native-authenticate?code=abc")
             },
         )
 
@@ -31,7 +31,7 @@ class NativeGoogleSignInCoordinatorTest {
         )
 
         assertEquals(
-            NativeGoogleSignInAction.Navigate("https://groovitation.blaha.io/oauth/native-authenticate?token=abc"),
+            NativeGoogleSignInAction.Navigate("https://groovitation.blaha.io/oauth/native-authenticate?code=abc"),
             action,
         )
     }

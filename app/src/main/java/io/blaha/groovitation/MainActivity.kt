@@ -373,13 +373,15 @@ class MainActivity : HotwireActivity() {
 
             it.data?.let { uri ->
                 if (uri.scheme == "groovitation" && uri.host == "oauth-callback") {
-                    // OAuth flow completed in Custom Tab — authenticate in WebView
-                    val token = uri.getQueryParameter("token")
+                    // OAuth flow completed in Custom Tab — authenticate in WebView.
+                    // Backend hands off a single-use code; the live session token never
+                    // traverses the deep-link URL.
+                    val code = uri.getQueryParameter("code")
                     val redirect = uri.getQueryParameter("redirect") ?: "/"
-                    if (token != null) {
+                    if (code != null) {
                         Log.d(TAG, "OAuth callback received, authenticating in WebView")
                         updateBottomNavForPath(redirect)
-                        val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?token=$token&redirect=$redirect&platform=android"
+                        val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?code=$code&redirect=$redirect&platform=android"
                         routeUrlWhenReady(authUrl)
                     }
                 } else if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
