@@ -104,11 +104,38 @@ lint:
     expire_in: 1 week
   allow_failure: true
 
+emulator-slot-claim:
+  <<: *android_setup
+  stage: test
+  timeout: 90 minutes
+  needs:
+    - job: build
+      artifacts: false
+    - job: test
+      artifacts: false
+  script:
+    - |
+      CLAIMED_EMU_PORT=$(bash scripts/android-emulator-slots.sh claim "$CI_PIPELINE_ID")
+      if [ -z "$CLAIMED_EMU_PORT" ]; then
+        echo "ERROR: Could not claim emulator slot"
+        exit 1
+      fi
+      echo "Claimed emulator slot port=${CLAIMED_EMU_PORT}"
+      echo "$CLAIMED_EMU_PORT" > emulator-slot.txt
+  artifacts:
+    paths:
+      - emulator-slot.txt
+    expire_in: 2 hours
+
 emulator-smoke-test:
   <<: *android_setup
   stage: test
-  # Two emulator slots (5556/5558) via flock. Core uses port 5554.
-  # All three share the ci-api35 AVD from /home/ben/.android/avd/ (cold boot, no snapshot).
+  timeout: 45 minutes
+  needs:
+    - job: emulator-slot-claim
+      artifacts: true
+  # A pipeline-held emulator slot is pre-claimed by emulator-slot-claim so
+  # this wall clock is spent on emulator boot + tests, not queue wait.
   script:
     - 'echo "Native emulator lane: localDebug fixture-backed checks"'
     - 'echo "APK under test: localDebug"'
@@ -131,24 +158,39 @@ emulator-smoke-test:
         exit 1
       }
       trap cleanup_on_signal TERM INT
-    # Acquire emulator slot: try port 5556, then 5558, then wait for 5556
+    # Read emulator slot claimed by the emulator-slot-claim gate job.
+    # On retry, keep using the same pipeline-held port when available.
     - |
-      exec 56>/tmp/android-emulator-5556.lock
-      if flock -n 56 2>/dev/null; then
-        export EMU_PORT=5556
+      if [ ! -f emulator-slot.txt ]; then
+        echo "ERROR: emulator-slot.txt not found — emulator-slot-claim job failed?"
+        exit 1
+      fi
+      PREFERRED_EMU_PORT=$(cat emulator-slot.txt)
+      EMU_LOCK_FILE="/tmp/android-emulator-slots/slot-${PREFERRED_EMU_PORT}.lock"
+      if [ -f "$EMU_LOCK_FILE" ] && [ "$(cat "$EMU_LOCK_FILE")" = "$CI_PIPELINE_ID" ]; then
+        export EMU_PORT="$PREFERRED_EMU_PORT"
+        echo "Using pre-claimed emulator slot port=${EMU_PORT}"
       else
-        exec 58>/tmp/android-emulator-5558.lock
-        if flock -n 58 2>/dev/null; then
-          export EMU_PORT=5558
-        else
-          echo "Both emulator slots busy, waiting for 5556..."
-          flock -w 5400 56
-          export EMU_PORT=5556
+        echo "Emulator slot lock lost (retry?), re-claiming..."
+        CLAIMED_EMU_PORT=$(ANDROID_EMULATOR_SLOT_CLAIM_TIMEOUT="${ANDROID_EMULATOR_SLOT_RECLAIM_TIMEOUT:-300}" \
+          bash scripts/android-emulator-slots.sh claim "$CI_PIPELINE_ID" "$PREFERRED_EMU_PORT")
+        if [ -z "$CLAIMED_EMU_PORT" ]; then
+          echo "ERROR: Could not re-claim emulator slot"
+          exit 1
         fi
+        export EMU_PORT="$CLAIMED_EMU_PORT"
+        echo "Re-claimed emulator slot port=${EMU_PORT}"
       fi
       export ANDROID_SERIAL="emulator-${EMU_PORT}"
+      exec {LEGACY_EMU_LOCK_FD}>"/tmp/android-emulator-${EMU_PORT}.lock"
+      if ! flock -w "${ANDROID_EMULATOR_LEGACY_FLOCK_TIMEOUT:-300}" "$LEGACY_EMU_LOCK_FD"; then
+        echo "ERROR: Could not acquire legacy emulator lock for port ${EMU_PORT}"
+        exit 1
+      fi
+      echo "Holding legacy emulator flock for port=${EMU_PORT}"
       echo "$EMU_PORT" > /tmp/emu-port-${CI_JOB_ID}
-      echo "Acquired emulator slot: port=${EMU_PORT} serial=${ANDROID_SERIAL}"
+      echo "$EMU_PORT" > /tmp/android-emulator-slot-${CI_JOB_ID}
+      echo "Using reserved emulator slot: port=${EMU_PORT} serial=${ANDROID_SERIAL}"
     # Kill stale emulator on our port only (don't touch other slots)
     - |
       adb -s "${ANDROID_SERIAL}" emu kill 2>/dev/null || true
@@ -238,6 +280,15 @@ emulator-smoke-test:
           adb -s "emulator-${p}" emu kill 2>/dev/null || true
           pkill -f "emulator.*-port ${p}" 2>/dev/null || true
         done
+      fi
+      if [ -f "/tmp/android-emulator-slot-${CI_JOB_ID}" ]; then
+        CLAIMED_EMU_PORT=$(cat "/tmp/android-emulator-slot-${CI_JOB_ID}")
+        if [ "${CI_JOB_STATUS:-}" = "success" ] || [ "${CI_JOB_STATUS:-}" = "canceled" ]; then
+          bash scripts/android-emulator-slots.sh release "$CLAIMED_EMU_PORT" "$CI_PIPELINE_ID"
+        else
+          echo "Keeping emulator slot $CLAIMED_EMU_PORT for retry (status=${CI_JOB_STATUS:-unknown})"
+        fi
+        rm -f "/tmp/android-emulator-slot-${CI_JOB_ID}"
       fi
   artifacts:
     reports:
