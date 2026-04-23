@@ -73,6 +73,41 @@ class MainActivityVersionStateTest {
         assertEquals(50, prefs.getInt("last_seen_app_version_code", -1))
     }
 
+    @Test
+    fun persistRequestedWritesBothKeysAtomically() {
+        val prefs = testPrefs()
+
+        MainActivity.persistNotificationPermissionRequested(
+            prefs = prefs,
+            currentVersionCode = 50
+        )
+
+        assertTrue(prefs.getBoolean("notification_permission_requested", false))
+        assertEquals(50, prefs.getInt("last_seen_app_version_code", -1))
+    }
+
+    @Test
+    fun persistRequestedSurvivesSameVersionReconcile() {
+        val prefs = testPrefs()
+
+        // Regression guard for #749: marking requested + same-version reconcile
+        // must not reset the flag, because last_seen is written atomically with
+        // requested=true in persistNotificationPermissionRequested.
+        MainActivity.persistNotificationPermissionRequested(
+            prefs = prefs,
+            currentVersionCode = 50
+        )
+
+        val resetApplied = MainActivity.reconcileNotificationPermissionStateForVersion(
+            prefs = prefs,
+            currentVersionCode = 50
+        )
+
+        assertFalse(resetApplied)
+        assertTrue(prefs.getBoolean("notification_permission_requested", false))
+        assertEquals(50, prefs.getInt("last_seen_app_version_code", -1))
+    }
+
     private fun testPrefs() = RuntimeEnvironment.getApplication().getSharedPreferences(
         prefsName,
         Context.MODE_PRIVATE

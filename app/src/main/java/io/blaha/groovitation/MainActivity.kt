@@ -87,6 +87,16 @@ class MainActivity : HotwireActivity() {
             return shouldResetRequestedState
         }
 
+        internal fun persistNotificationPermissionRequested(
+            prefs: SharedPreferences,
+            currentVersionCode: Int
+        ) {
+            prefs.edit()
+                .putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, true)
+                .putInt(KEY_LAST_SEEN_APP_VERSION_CODE, currentVersionCode)
+                .apply()
+        }
+
         internal fun shouldAutoRequestPermissions(intent: Intent?): Boolean {
             return intent?.getBooleanExtra(EXTRA_DISABLE_STARTUP_PERMISSION_CHAIN, false) != true
         }
@@ -845,10 +855,16 @@ class MainActivity : HotwireActivity() {
     }
 
     private fun markNotificationPermissionRequested() {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, true)
-            .apply()
+        // Persist last_seen_app_version_code alongside the requested flag so the two
+        // keys can never diverge on disk. Without this, the separate apply() writes
+        // from handleAppVersionState() and here race through SharedPreferences' async
+        // disk writer; a same-version relaunch could observe requested=true with
+        // last_seen=-1, misclassify it as a legacy upgrade, reset the flag, and
+        // re-prompt the user. See #749.
+        persistNotificationPermissionRequested(
+            prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+            currentVersionCode = BuildConfig.VERSION_CODE
+        )
     }
 
     private fun wasNotificationPermissionRequested(): Boolean {
