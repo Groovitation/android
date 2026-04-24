@@ -297,6 +297,150 @@ emulator-smoke-test:
     paths:
       - build/ci-logs/avatar-fixture-server.log
 
+# #797: Firebase Test Lab nightly on a physical Samsung Galaxy S24.
+#
+# Why a separate job (not folded into emulator-smoke-test):
+#   - Emulators cannot reproduce OneUI throttling, Samsung's "Put unused apps
+#     to sleep" thresholds, or OEM FusedLocationProvider radio behaviour with
+#     the screen off. These are the dominant class of "works on my device,
+#     silent in prod" location bugs (scruff3 2026-04-23 investigation on
+#     Ben's S24+).
+#   - Physical-device cloud runs cost ~$1–5/day on FTL — too much for every
+#     PR. Schedule-only run keeps the cost predictable and lets per-PR CI
+#     stay emulator-only.
+#
+# Trigger: scheduled pipeline only (rules: schedule). Manual trigger is
+# also exposed via `when: manual` so a maintainer can fire it from the
+# pipeline UI when investigating an OEM-shaped bug between nightlies.
+#
+# Authentication: gcloud uses GOOGLE_APPLICATION_CREDENTIALS pointing at a
+# decoded service-account key (FTL_SERVICE_ACCOUNT_KEY_B64 → JSON file).
+# The service account needs:
+#   - roles/firebase.testLabAdmin on the project
+#   - access to the Cloud Storage bucket configured below
+#
+# Test surface: instrumentation tests (the same suite emulator-smoke-test
+# runs locally) plus a Robo crawl. Robo is automatic — no test code, exists
+# specifically to catch OEM-induced ANRs/crashes that the assertion-based
+# tests don't yet reach.
+#
+# Runbook: docs/firebase-test-lab-nightly.md
+firebase-test-lab-nightly:
+  <<: *android_setup
+  stage: test
+  timeout: 90 minutes
+  rules:
+    # Run automatically only on the nightly scheduled pipeline.
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_REF_NAME == "main"'
+      when: always
+    # Allow manual fire from a push or `Run pipeline` web trigger so a
+    # maintainer can investigate an OEM-shaped bug between nightlies.
+    # Explicitly scoped to push/web (NOT merge_request_event) — the rest
+    # of this file's jobs are ruleless and therefore push-only, so an
+    # unconditional `when: manual` fallback would be the only eligible
+    # job in an MR-event pipeline. With this job's `needs: build` then
+    # unsatisfied (build doesn't run on MR events), GitLab would create
+    # a zero-job MR pipeline and mark it failed (#10938 incident on
+    # !44 head).
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
+  needs:
+    - job: build
+      artifacts: true
+  variables:
+    # Galaxy S24 (US carrier model). Available in Firebase's catalog at
+    # https://firebase.google.com/docs/test-lab/android/available-testing-devices.
+    # Override with FTL_DEVICE_OVERRIDE in the schedule's variables to chase
+    # a specific OneUI version when a regression report comes in.
+    FTL_DEVICE_MODEL: "${FTL_DEVICE_MODEL:-SM-S921U}"
+    FTL_DEVICE_VERSION: "${FTL_DEVICE_VERSION:-34}"
+    FTL_LOCALE: "en_US"
+    FTL_ORIENTATION: "portrait"
+    # Where FTL stores per-run artefacts inside its results bucket.
+    FTL_RESULTS_DIR_PREFIX: "ci-nightly"
+  script:
+    - |
+      set -euo pipefail
+      # ── Auth ─────────────────────────────────────────────────────────
+      if [ -z "${FTL_SERVICE_ACCOUNT_KEY_B64:-}" ]; then
+        echo "ERROR: FTL_SERVICE_ACCOUNT_KEY_B64 not set in CI variables — cannot authenticate to Firebase Test Lab"
+        exit 1
+      fi
+      if [ -z "${FTL_GCP_PROJECT_ID:-}" ]; then
+        echo "ERROR: FTL_GCP_PROJECT_ID not set — cannot route the FTL run to a billing project"
+        exit 1
+      fi
+      mkdir -p build/firebase-test-lab
+      KEY_PATH="$(pwd)/build/firebase-test-lab/sa-key.json"
+      printf '%s' "${FTL_SERVICE_ACCOUNT_KEY_B64}" | tr -d '\r\n ' | base64 -d > "${KEY_PATH}"
+      export GOOGLE_APPLICATION_CREDENTIALS="${KEY_PATH}"
+      gcloud auth activate-service-account --key-file="${KEY_PATH}"
+      gcloud config set project "${FTL_GCP_PROJECT_ID}"
+    - |
+      # ── Build the test APK alongside the app APK from `build`. The job
+      #    already produced the prod-debug app APK as an artefact; FTL's
+      #    instrumentation lane needs the matching androidTest APK too.
+      ./gradlew assembleProdDebugAndroidTest --no-daemon
+    - |
+      APP_APK="app/build/outputs/apk/prod/debug/app-prod-debug.apk"
+      TEST_APK="app/build/outputs/apk/androidTest/prod/debug/app-prod-debug-androidTest.apk"
+      if [ ! -f "${APP_APK}" ]; then
+        echo "ERROR: app APK missing at ${APP_APK}"
+        exit 1
+      fi
+      if [ ! -f "${TEST_APK}" ]; then
+        echo "ERROR: test APK missing at ${TEST_APK}"
+        exit 1
+      fi
+      ls -la "${APP_APK}" "${TEST_APK}"
+    - |
+      # ── Robo crawl. No test code — Firebase's automated UI explorer
+      #    drives the app for ~5 minutes and surfaces ANRs/crashes that
+      #    OEM throttling or OneUI-specific WebView patches cause. This
+      #    is the "broad smoke" half of the nightly.
+      RUN_ID="nightly-$(date +%Y%m%d-%H%M%S)"
+      ROBO_RESULTS_DIR="${FTL_RESULTS_DIR_PREFIX}/${RUN_ID}/robo"
+      echo "Submitting Robo crawl to FTL (device=${FTL_DEVICE_MODEL}, api=${FTL_DEVICE_VERSION})..."
+      gcloud firebase test android run \
+        --type robo \
+        --app "${APP_APK}" \
+        --device "model=${FTL_DEVICE_MODEL},version=${FTL_DEVICE_VERSION},locale=${FTL_LOCALE},orientation=${FTL_ORIENTATION}" \
+        --results-dir "${ROBO_RESULTS_DIR}" \
+        --timeout "5m" \
+        2>&1 | tee build/firebase-test-lab/robo.log
+    - |
+      # ── Instrumentation suite. Same tests emulator-smoke-test runs,
+      #    but on a real S24. The location/Doze/AppStandby tests are the
+      #    ones that catch OEM regressions; the rest serve as a smoke
+      #    layer that the build is sound on real hardware.
+      RUN_ID_INST="nightly-$(date +%Y%m%d-%H%M%S)"
+      INST_RESULTS_DIR="${FTL_RESULTS_DIR_PREFIX}/${RUN_ID_INST}/instrumentation"
+      APP_APK="app/build/outputs/apk/prod/debug/app-prod-debug.apk"
+      TEST_APK="app/build/outputs/apk/androidTest/prod/debug/app-prod-debug-androidTest.apk"
+      echo "Submitting instrumentation suite to FTL..."
+      gcloud firebase test android run \
+        --type instrumentation \
+        --app "${APP_APK}" \
+        --test "${TEST_APK}" \
+        --device "model=${FTL_DEVICE_MODEL},version=${FTL_DEVICE_VERSION},locale=${FTL_LOCALE},orientation=${FTL_ORIENTATION}" \
+        --results-dir "${INST_RESULTS_DIR}" \
+        --timeout "30m" \
+        --use-orchestrator \
+        --environment-variables "clearPackageData=true" \
+        2>&1 | tee build/firebase-test-lab/instrumentation.log
+  after_script:
+    # Scrub the service-account key off the runner so a runner takeover can't
+    # exfiltrate it. The artefact upload below filters it out via path; this
+    # is the belt to that braces.
+    - rm -f build/firebase-test-lab/sa-key.json || true
+  artifacts:
+    when: always
+    paths:
+      - build/firebase-test-lab/robo.log
+      - build/firebase-test-lab/instrumentation.log
+    expire_in: 30 days
+
 deploy:
   stage: deploy
   dependencies:
