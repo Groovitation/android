@@ -72,12 +72,6 @@ class MainActivity : HotwireActivity() {
         // recovery for users whose tracking has gone silent for days lives
         // server-side (heartbeat ticket #796).
         private const val KEY_SAMSUNG_ONBOARDING_SHOWN = "samsung_background_onboarding_shown"
-        // True after we've fired ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-        // at the user once. Prevents re-prompting on every resume — once
-        // they've seen the OS dialog, asking again won't change their mind
-        // and is just annoying. The diagnostic screen (planned, #21) will
-        // expose a "try again" path for users who want to re-trigger.
-        private const val KEY_BATTERY_EXEMPTION_REQUESTED = "battery_exemption_requested"
         internal const val RECENT_FOREGROUND_LOCATION_MAX_AGE_MS = 120_000L
         internal const val NATIVE_LOCATION_AUTH_REFRESH_DEBOUNCE_MS = 5000L
         private const val WELCOME_NOTIFICATION_ID = 1001
@@ -132,7 +126,7 @@ class MainActivity : HotwireActivity() {
             sdkInt: Int,
             isIgnoringBatteryOptimizations: Boolean,
             hasBackgroundPermission: Boolean,
-            alreadyRequested: Boolean
+            promptedThisSession: Boolean
         ): Boolean {
             // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is API 23+ but
             // only meaningful once we have the location permission we'd
@@ -140,9 +134,14 @@ class MainActivity : HotwireActivity() {
             if (sdkInt < Build.VERSION_CODES.M) return false
             if (!hasBackgroundPermission) return false
             if (isIgnoringBatteryOptimizations) return false
-            // The OS dialog is modal and can't be silenced beyond user
-            // dismissal. Re-firing it on every resume is hostile.
-            if (alreadyRequested) return false
+            // #787: cap to one prompt per app session — firing the modal
+            // OS dialog on every onResume within a single session is
+            // hostile, but a fresh app launch (common after a Samsung
+            // firmware update silently re-restricted us to battery
+            // optimizations) is exactly when we want to try again. A
+            // session-level flag gives us "re-prompt across restarts"
+            // without the "modal every resume" UX.
+            if (promptedThisSession) return false
             return true
         }
 
@@ -1157,17 +1156,13 @@ class MainActivity : HotwireActivity() {
             .apply()
     }
 
-    private fun wasBatteryExemptionRequested(): Boolean {
-        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_BATTERY_EXEMPTION_REQUESTED, false)
-    }
-
-    private fun markBatteryExemptionRequested() {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_BATTERY_EXEMPTION_REQUESTED, true)
-            .apply()
-    }
+    // #787: session-level cap on the battery-exemption OS dialog. Once per
+    // app process lifetime the user sees it; a subsequent MainActivity.onResume
+    // is a cheap no-op. A fresh app launch (after kill / firmware update /
+    // Samsung re-restricting us) clears this flag and re-offers the dialog —
+    // which is exactly what the ticket asks for.
+    @Volatile
+    private var batteryExemptionPromptedThisSession: Boolean = false
 
     /**
      * Two-step OEM-killer defense, fired right after background location is
@@ -1190,10 +1185,10 @@ class MainActivity : HotwireActivity() {
                 sdkInt = Build.VERSION.SDK_INT,
                 isIgnoringBatteryOptimizations = isIgnoringBatteryOptimizations(),
                 hasBackgroundPermission = hasBackgroundLocationPermission(),
-                alreadyRequested = wasBatteryExemptionRequested()
+                promptedThisSession = batteryExemptionPromptedThisSession
             )
         ) {
-            markBatteryExemptionRequested()
+            batteryExemptionPromptedThisSession = true
             requestIgnoreBatteryOptimizations()
         }
 

@@ -145,7 +145,7 @@ class BackgroundLocationGateTest {
                 sdkInt = Build.VERSION_CODES.LOLLIPOP_MR1,
                 isIgnoringBatteryOptimizations = false,
                 hasBackgroundPermission = true,
-                alreadyRequested = false
+                promptedThisSession = false
             )
         )
     }
@@ -157,7 +157,7 @@ class BackgroundLocationGateTest {
                 sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                 isIgnoringBatteryOptimizations = true,
                 hasBackgroundPermission = true,
-                alreadyRequested = false
+                promptedThisSession = false
             )
         )
     }
@@ -169,22 +169,39 @@ class BackgroundLocationGateTest {
                 sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                 isIgnoringBatteryOptimizations = false,
                 hasBackgroundPermission = false,
-                alreadyRequested = false
+                promptedThisSession = false
             )
         )
     }
 
     @Test
-    fun `does not re-request exemption once already requested`() {
-        // The OS dialog is modal and asking again won't change the user's
-        // mind — it's just annoying. Re-trigger lives behind a "try again"
-        // button on the diagnostic screen (#21).
+    fun `does not re-request exemption within the same session`() {
+        // The OS dialog is modal; re-firing it on every onResume within one
+        // session is hostile. Once per session is the cap.
         assertFalse(
             MainActivity.shouldRequestBatteryOptimizationExemption(
                 sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                 isIgnoringBatteryOptimizations = false,
                 hasBackgroundPermission = true,
-                alreadyRequested = true
+                promptedThisSession = true
+            )
+        )
+    }
+
+    @Test
+    fun `re-requests exemption on a fresh session when still not exempt`() {
+        // #787 key scenario: Samsung firmware updates silently re-add us to
+        // battery-optimized apps. On the first resume of the NEXT session,
+        // promptedThisSession is false by construction (it's an in-memory
+        // flag, lost across process restarts), so the gate fires again —
+        // exactly the recovery path the ticket asks for.
+        assertTrue(
+            "Fresh session with background perm still granted and not exempt must re-prompt",
+            MainActivity.shouldRequestBatteryOptimizationExemption(
+                sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                isIgnoringBatteryOptimizations = false,
+                hasBackgroundPermission = true,
+                promptedThisSession = false
             )
         )
     }
@@ -196,7 +213,7 @@ class BackgroundLocationGateTest {
                 sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                 isIgnoringBatteryOptimizations = false,
                 hasBackgroundPermission = true,
-                alreadyRequested = false
+                promptedThisSession = false
             )
         )
     }
