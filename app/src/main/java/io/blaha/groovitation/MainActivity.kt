@@ -13,6 +13,7 @@ import android.location.Location
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
@@ -65,6 +66,12 @@ class MainActivity : HotwireActivity() {
         // re-promptable so we don't silently lock users out of background
         // tracking when they never made an explicit choice.
         private const val KEY_USER_CHOSE_FOREGROUND_ONLY = "background_location_user_chose_foreground_only"
+        // True after we've shown the Samsung-specific "Never sleeping apps"
+        // onboarding dialog at least once for this install. Cap the dialog
+        // to one show per install so it isn't annoying — the deeper
+        // recovery for users whose tracking has gone silent for days lives
+        // server-side (heartbeat ticket #796).
+        private const val KEY_SAMSUNG_ONBOARDING_SHOWN = "samsung_background_onboarding_shown"
         internal const val RECENT_FOREGROUND_LOCATION_MAX_AGE_MS = 120_000L
         internal const val NATIVE_LOCATION_AUTH_REFRESH_DEBOUNCE_MS = 5000L
         private const val WELCOME_NOTIFICATION_ID = 1001
@@ -100,6 +107,53 @@ class MainActivity : HotwireActivity() {
             if (hasBackgroundPermission) return false
             if (foregroundOnlyExplicitlyChosen) return false
             if (promptedThisSession) return false
+            return true
+        }
+
+        /**
+         * Decides whether to fire the OS battery-optimization-exemption
+         * prompt right after we've been granted background location.
+         * Pure function so the matrix is testable.
+         *
+         * Mechanism: WorkManager periodic work (15 min) is throttled or
+         * cancelled by the OS scheduler when the app is in a restricted
+         * standby bucket or otherwise battery-optimized. The exemption
+         * intent flips us into the "unrestricted" bucket on stock Android
+         * and is the prerequisite for Samsung's "Never sleeping apps"
+         * recognition path.
+         */
+        internal fun shouldRequestBatteryOptimizationExemption(
+            sdkInt: Int,
+            isIgnoringBatteryOptimizations: Boolean,
+            hasBackgroundPermission: Boolean
+        ): Boolean {
+            // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is API 23+ but
+            // only meaningful once we have the location permission we'd
+            // be using in the background.
+            if (sdkInt < Build.VERSION_CODES.M) return false
+            if (!hasBackgroundPermission) return false
+            if (isIgnoringBatteryOptimizations) return false
+            return true
+        }
+
+        /**
+         * Decides whether to show the Samsung-specific "Never sleeping apps"
+         * onboarding dialog. Pure function so the matrix is testable.
+         *
+         * Samsung OneUI's "Put unused apps to sleep" routinely shelves apps
+         * after a few days of non-use, even when battery-optimization is
+         * exempt. The Settings location is unique to Samsung and worth
+         * walking the user to explicitly. We cap to once per install so the
+         * dialog isn't a recurring nag.
+         */
+        internal fun shouldShowSamsungSleepingAppsOnboarding(
+            manufacturer: String?,
+            hasBackgroundPermission: Boolean,
+            onboardingAlreadyShown: Boolean
+        ): Boolean {
+            if (manufacturer?.lowercase() != "samsung") return false
+            if (!hasBackgroundPermission) return false
+            if (onboardingAlreadyShown) return false
             return true
         }
 
@@ -219,6 +273,11 @@ class MainActivity : HotwireActivity() {
         if (isGranted) {
             Log.d(TAG, "Background location permission granted")
             tryStartBackgroundTracking()
+            // Permission alone isn't enough on Samsung / aggressive OEMs —
+            // we also need to be off the battery-optimization list and out
+            // of "sleeping apps." Otherwise the WorkManager periodic
+            // location worker is silently shelved.
+            hardenBackgroundTrackingAgainstOemKillers()
         } else {
             Log.w(TAG, "Background location permission denied")
             showBackgroundLocationExplanation()
@@ -1062,6 +1121,123 @@ class MainActivity : HotwireActivity() {
             .edit()
             .putBoolean(KEY_USER_CHOSE_FOREGROUND_ONLY, true)
             .apply()
+    }
+
+    private fun wasSamsungOnboardingShown(): Boolean {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SAMSUNG_ONBOARDING_SHOWN, false)
+    }
+
+    private fun markSamsungOnboardingShown() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SAMSUNG_ONBOARDING_SHOWN, true)
+            .apply()
+    }
+
+    /**
+     * Two-step OEM-killer defense, fired right after background location is
+     * granted by the user. Both steps are no-ops if their precondition is
+     * already satisfied:
+     *
+     * 1. Battery-optimization exemption (API 23+, all OEMs). Without this,
+     *    `WorkManager` periodic work is throttled or cancelled in standby.
+     *    Sensitive permission — declared in manifest with Play Console
+     *    justification.
+     * 2. Samsung "Never sleeping apps" onboarding (Samsung-only). The OS
+     *    permission system reports background location as granted, but
+     *    OneUI's separate "sleeping apps" / "deep sleep" mechanism can still
+     *    silently shelve us. Walk the user to the right Settings screen
+     *    once per install. The recurring re-prompt for users whose
+     *    tracking has gone silent for days lives server-side (#796).
+     */
+    private fun hardenBackgroundTrackingAgainstOemKillers() {
+        if (shouldRequestBatteryOptimizationExemption(
+                sdkInt = Build.VERSION.SDK_INT,
+                isIgnoringBatteryOptimizations = isIgnoringBatteryOptimizations(),
+                hasBackgroundPermission = hasBackgroundLocationPermission()
+            )
+        ) {
+            requestIgnoreBatteryOptimizations()
+        }
+
+        if (shouldShowSamsungSleepingAppsOnboarding(
+                manufacturer = Build.MANUFACTURER,
+                hasBackgroundPermission = hasBackgroundLocationPermission(),
+                onboardingAlreadyShown = wasSamsungOnboardingShown()
+            )
+        ) {
+            showSamsungSleepingAppsOnboarding()
+        }
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
+        return pm.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun requestIgnoreBatteryOptimizations() {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to request battery optimization exemption", e)
+        }
+    }
+
+    private fun showSamsungSleepingAppsOnboarding() {
+        markSamsungOnboardingShown()
+
+        AlertDialog.Builder(this)
+            .setTitle("One more step on Samsung")
+            .setMessage(
+                "Samsung phones have a separate 'sleeping apps' setting that " +
+                "can stop Groovitation from finding hangout spots in the " +
+                "background — even with location permission granted.\n\n" +
+                "Tap 'Open Battery settings' and add Groovitation to " +
+                "'Never sleeping apps' to keep proximity working when the " +
+                "app is closed."
+            )
+            .setPositiveButton("Open Battery settings") { dialog, _ ->
+                dialog.dismiss()
+                openBatteryUsageSettings()
+            }
+            .setNegativeButton("Not now") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setCancelable(true)
+            .show()
+    }
+
+    private fun openBatteryUsageSettings() {
+        // Try the Samsung-specific deep link first, fall back to the
+        // generic per-app battery settings if it's not handled.
+        val samsungIntent = Intent().apply {
+            setClassName(
+                "com.samsung.android.lool",
+                "com.samsung.android.sm.battery.ui.BatteryActivity"
+            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(samsungIntent)
+            return
+        } catch (e: Exception) {
+            Log.d(TAG, "Samsung battery activity not available, falling back to generic settings")
+        }
+
+        val genericIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(genericIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open battery settings", e)
+        }
     }
 
     fun hasLocationPermission(): Boolean {
