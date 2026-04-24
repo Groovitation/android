@@ -53,10 +53,18 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class LocationWorkerInstrumentedTest {
 
+    // #798: the API 29+ gap-check in LocationWorker.doWork() now also requires
+    // ACCESS_BACKGROUND_LOCATION before it reaches the HTTP POST path. The
+    // positive tests in this class model a well-configured device — they
+    // assert the POST actually happens — so they must grant BACKGROUND here
+    // too. Without this grant the gap-check fires first and the test sees
+    // SKIPPED_NO_BACKGROUND_LOCATION_PERMISSION instead of POSTED. The
+    // BACKGROUND-missing case is covered in BackgroundPermissionMissingTest.
     @get:Rule
     val locationPermissionRule: GrantPermissionRule = GrantPermissionRule.grant(
         Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION
     )
 
     private val context: Context
