@@ -1361,6 +1361,18 @@ class MainActivity : HotwireActivity() {
     }
 
     fun onSignedInStateFromWeb(signedIn: Boolean) {
+        // #790: the web layer has just landed a sign-in Set-Cookie (or a
+        // sign-out expiry header) in the WebView's in-memory cookie store.
+        // Background workers read CookieManager from disk, so an unflushed
+        // in-memory cookie is effectively invisible to them if the process
+        // gets killed (Samsung kills app processes aggressively). Flushing
+        // here on both the in and out path keeps the on-disk cookie store
+        // coherent with whatever the web layer just wrote — complements
+        // the onPause/onStop flushes for the case where the user navigates
+        // *within* the app after sign-in/out without going through a
+        // pause/stop cycle first.
+        CookieManager.getInstance().flush()
+
         if (signedIn) return
 
         Log.d(TAG, "Signed-out state received from web, stopping background tracking")
