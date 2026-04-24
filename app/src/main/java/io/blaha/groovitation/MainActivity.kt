@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.webkit.CookieManager
@@ -23,6 +24,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -57,6 +59,12 @@ class MainActivity : HotwireActivity() {
         private const val KEY_LAST_SEEN_APP_VERSION_CODE = "last_seen_app_version_code"
         private const val KEY_BACKGROUND_LOCATION_SYSTEM_PROMPTED = "background_location_system_prompted"
         private const val KEY_BACKGROUND_LOCATION_DIALOG_SHOWN = "background_location_dialog_shown"
+        // Set only when the user explicitly taps "I'm sure" on the rationale
+        // dialog. Acts as the hard gate for never re-prompting; all other
+        // states (OS-denied, dismissed, permission auto-reset) are treated as
+        // re-promptable so we don't silently lock users out of background
+        // tracking when they never made an explicit choice.
+        private const val KEY_USER_CHOSE_FOREGROUND_ONLY = "background_location_user_chose_foreground_only"
         internal const val RECENT_FOREGROUND_LOCATION_MAX_AGE_MS = 120_000L
         internal const val NATIVE_LOCATION_AUTH_REFRESH_DEBOUNCE_MS = 5000L
         private const val WELCOME_NOTIFICATION_ID = 1001
@@ -67,6 +75,33 @@ class MainActivity : HotwireActivity() {
             "io.blaha.groovitation.extra.DISABLE_STARTUP_PERMISSION_CHAIN"
         internal const val EXTRA_SKIP_LOCATION_PERMISSION_CHAIN =
             "io.blaha.groovitation.extra.SKIP_LOCATION_PERMISSION_CHAIN"
+
+        /**
+         * Decides whether `promptBackgroundLocationPermission` should proceed
+         * (true) or skip (false). Pure function so the matrix is testable
+         * without driving the Activity.
+         *
+         * The historical bug this gate replaces: the previous implementation
+         * skipped on `dialogShown == true`, which conflated "we showed the
+         * rationale dialog at least once" with "user explicitly chose
+         * foreground-only." Users who tapped "Enable background tracking" then
+         * got denied at the OS level (or whose permission auto-reset) were
+         * silently locked out forever. The new gate respects only the explicit
+         * `foregroundOnlyExplicitlyChosen` flag, which is set ONLY when the
+         * user taps "I'm sure" on the rationale dialog.
+         */
+        internal fun shouldPromptForBackgroundLocation(
+            sdkInt: Int,
+            hasBackgroundPermission: Boolean,
+            foregroundOnlyExplicitlyChosen: Boolean,
+            promptedThisSession: Boolean
+        ): Boolean {
+            if (sdkInt < Build.VERSION_CODES.Q) return false
+            if (hasBackgroundPermission) return false
+            if (foregroundOnlyExplicitlyChosen) return false
+            if (promptedThisSession) return false
+            return true
+        }
 
         internal fun reconcileNotificationPermissionStateForVersion(
             prefs: SharedPreferences,
@@ -892,14 +927,18 @@ class MainActivity : HotwireActivity() {
     }
 
     private fun promptBackgroundLocationPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        if (hasBackgroundLocationPermission()) return
-        if (wasBackgroundLocationDialogShown()) {
-            Log.d(TAG, "Background location explanation already shown, user declined permanently")
-            return
-        }
-        if (backgroundPermissionPromptedThisSession) {
-            Log.d(TAG, "Background location already prompted this session, skipping")
+        val shouldPrompt = shouldPromptForBackgroundLocation(
+            sdkInt = Build.VERSION.SDK_INT,
+            hasBackgroundPermission = hasBackgroundLocationPermission(),
+            foregroundOnlyExplicitlyChosen = wasForegroundOnlyExplicitlyChosen(),
+            promptedThisSession = backgroundPermissionPromptedThisSession
+        )
+        if (!shouldPrompt) {
+            if (wasForegroundOnlyExplicitlyChosen()) {
+                Log.d(TAG, "User explicitly chose foreground-only location, respecting that")
+            } else if (backgroundPermissionPromptedThisSession) {
+                Log.d(TAG, "Background location already prompted this session, skipping")
+            }
             return
         }
 
@@ -918,7 +957,7 @@ class MainActivity : HotwireActivity() {
     }
 
     private fun showBackgroundLocationExplanation() {
-        if (wasBackgroundLocationDialogShown()) return
+        if (wasForegroundOnlyExplicitlyChosen()) return
         markBackgroundLocationDialogShown()
 
         AlertDialog.Builder(this)
@@ -930,15 +969,63 @@ class MainActivity : HotwireActivity() {
             )
             .setPositiveButton("Enable background tracking") { dialog, _ ->
                 dialog.dismiss()
-                backgroundLocationPermissionLauncher.launch(
-                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
-                )
+                requestBackgroundLocationOrOpenSettings()
             }
             .setNegativeButton("I'm sure") { dialog, _ ->
+                // This is the single place where we record "user explicitly
+                // chose foreground-only." Any other exit (dialog dismissal,
+                // OS denial, process death) leaves the flag unset so we can
+                // try again later.
+                markForegroundOnlyExplicitlyChosen()
                 dialog.dismiss()
             }
             .setCancelable(false)
             .show()
+    }
+
+    /**
+     * Launch the OS background-location prompt, OR deep-link to app Settings if
+     * Android has moved the permission into its "don't ask again" state
+     * (two denials without rationale). In that state calling `launch()` silently
+     * no-ops and the ActivityResult callback fires with `isGranted=false` in
+     * the next event loop tick — which would look identical to a fresh denial
+     * and trap the user. Detecting the condition up front lets us route them
+     * to Settings where they can actually change it.
+     */
+    private fun requestBackgroundLocationOrOpenSettings() {
+        if (isBackgroundLocationPermanentlyDenied()) {
+            Log.d(TAG, "Background location permission is permanently denied; opening app settings")
+            openAppDetailsSettings()
+        } else {
+            backgroundLocationPermissionLauncher.launch(
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            )
+        }
+    }
+
+    private fun isBackgroundLocationPermanentlyDenied(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        if (!wasBackgroundLocationSystemPrompted()) return false
+        // `shouldShowRequestPermissionRationale` returns true immediately after
+        // the first denial and false once Android has decided further prompts
+        // would be noise. Combined with "we've prompted at least once," false
+        // here means we should route to Settings rather than re-launching the
+        // permission dialog.
+        return !ActivityCompat.shouldShowRequestPermissionRationale(
+            this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+        )
+    }
+
+    private fun openAppDetailsSettings() {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open app details settings", e)
+        }
     }
 
     private fun wasBackgroundLocationSystemPrompted(): Boolean {
@@ -962,6 +1049,18 @@ class MainActivity : HotwireActivity() {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_BACKGROUND_LOCATION_DIALOG_SHOWN, true)
+            .apply()
+    }
+
+    private fun wasForegroundOnlyExplicitlyChosen(): Boolean {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_USER_CHOSE_FOREGROUND_ONLY, false)
+    }
+
+    private fun markForegroundOnlyExplicitlyChosen() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_USER_CHOSE_FOREGROUND_ONLY, true)
             .apply()
     }
 
