@@ -3,6 +3,7 @@ package io.blaha.groovitation.services
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -61,6 +62,14 @@ class LocationWorker(
         SKIPPED_NO_PERSON_UUID,
         /** ACCESS_FINE_LOCATION and ACCESS_COARSE_LOCATION both denied. */
         SKIPPED_NO_LOCATION_PERMISSION,
+        /**
+         * API 29+ gap-check (#798): FINE/COARSE granted but ACCESS_BACKGROUND_LOCATION
+         * denied. FusedLocationProvider would either throw SecurityException or
+         * silently return null during background execution; short-circuiting here
+         * gives on-call a distinct outcome to grep on and pairs with the onboarding
+         * re-prompt flow landed via `human/scruff3-background-location-reprompt`.
+         */
+        SKIPPED_NO_BACKGROUND_LOCATION_PERMISSION,
         /** FusedLocationProvider returned null — common on screen-off / poor radio reception. */
         SKIPPED_NO_LOCATION_FIX,
         /**
@@ -140,7 +149,8 @@ class LocationWorker(
             when (outcome) {
                 Outcome.POSTED,
                 Outcome.SKIPPED_NO_PERSON_UUID,
-                Outcome.SKIPPED_NO_LOCATION_PERMISSION -> Log.d(TAG, message)
+                Outcome.SKIPPED_NO_LOCATION_PERMISSION,
+                Outcome.SKIPPED_NO_BACKGROUND_LOCATION_PERMISSION -> Log.d(TAG, message)
                 Outcome.SKIPPED_NO_LOCATION_FIX,
                 Outcome.SKIPPED_NO_AUTH,
                 Outcome.HTTP_FAILED,
@@ -169,6 +179,21 @@ class LocationWorker(
             ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) {
             emitOutcome(Outcome.SKIPPED_NO_LOCATION_PERMISSION)
+            return Result.success()
+        }
+
+        // API 29+ gap-check (#798): FINE/COARSE are not sufficient for background
+        // fixes on Android 10+. Without ACCESS_BACKGROUND_LOCATION the
+        // FusedLocationProvider will either throw SecurityException (caught
+        // below as PERMISSION_REVOKED_AT_RUNTIME) or silently return null
+        // (surfaces as SKIPPED_NO_LOCATION_FIX). Short-circuit to a distinct
+        // outcome so prod can grep for this specific failure shape and the
+        // onboarding re-prompt (landed via `human/scruff3-background-location-reprompt`)
+        // has a single telemetry hook to trigger on.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            != PackageManager.PERMISSION_GRANTED) {
+            emitOutcome(Outcome.SKIPPED_NO_BACKGROUND_LOCATION_PERMISSION)
             return Result.success()
         }
 
