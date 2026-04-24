@@ -32,10 +32,21 @@ internal object LocationWorkerTestHooks {
     @Volatile
     var suppressGeofence: Boolean = false
 
+    /**
+     * Outcomes captured from `LocationWorker.doWork()` exits. Always
+     * appended (not gated on [enabled]) so the structured-outcome path
+     * is observable from tests without requiring the full test-mode
+     * setup. Production lifecycle is unaffected — callers should `reset()`
+     * between test cases.
+     */
+    val capturedOutcomes: MutableList<LocationWorker.Outcome> =
+        java.util.Collections.synchronizedList(mutableListOf())
+
     fun reset() {
         enabled = false
         overrideLocation = null
         capturedUploads.clear()
         suppressGeofence = false
+        capturedOutcomes.clear()
     }
 }

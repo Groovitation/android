@@ -144,7 +144,8 @@ class BackgroundLocationGateTest {
             MainActivity.shouldRequestBatteryOptimizationExemption(
                 sdkInt = Build.VERSION_CODES.LOLLIPOP_MR1,
                 isIgnoringBatteryOptimizations = false,
-                hasBackgroundPermission = true
+                hasBackgroundPermission = true,
+                alreadyRequested = false
             )
         )
     }
@@ -155,31 +156,47 @@ class BackgroundLocationGateTest {
             MainActivity.shouldRequestBatteryOptimizationExemption(
                 sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                 isIgnoringBatteryOptimizations = true,
-                hasBackgroundPermission = true
+                hasBackgroundPermission = true,
+                alreadyRequested = false
             )
         )
     }
 
     @Test
     fun `does not request exemption without background-location permission`() {
-        // The exemption only matters once we have something background-y to
-        // protect. Asking earlier would be permission whiplash.
         assertFalse(
             MainActivity.shouldRequestBatteryOptimizationExemption(
                 sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                 isIgnoringBatteryOptimizations = false,
-                hasBackgroundPermission = false
+                hasBackgroundPermission = false,
+                alreadyRequested = false
             )
         )
     }
 
     @Test
-    fun `requests exemption when background permission granted and not exempt`() {
+    fun `does not re-request exemption once already requested`() {
+        // The OS dialog is modal and asking again won't change the user's
+        // mind — it's just annoying. Re-trigger lives behind a "try again"
+        // button on the diagnostic screen (#21).
+        assertFalse(
+            MainActivity.shouldRequestBatteryOptimizationExemption(
+                sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                isIgnoringBatteryOptimizations = false,
+                hasBackgroundPermission = true,
+                alreadyRequested = true
+            )
+        )
+    }
+
+    @Test
+    fun `requests exemption when background permission granted and not exempt and not already asked`() {
         assertTrue(
             MainActivity.shouldRequestBatteryOptimizationExemption(
                 sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                 isIgnoringBatteryOptimizations = false,
-                hasBackgroundPermission = true
+                hasBackgroundPermission = true,
+                alreadyRequested = false
             )
         )
     }

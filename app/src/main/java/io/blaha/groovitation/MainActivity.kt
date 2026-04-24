@@ -72,6 +72,12 @@ class MainActivity : HotwireActivity() {
         // recovery for users whose tracking has gone silent for days lives
         // server-side (heartbeat ticket #796).
         private const val KEY_SAMSUNG_ONBOARDING_SHOWN = "samsung_background_onboarding_shown"
+        // True after we've fired ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+        // at the user once. Prevents re-prompting on every resume — once
+        // they've seen the OS dialog, asking again won't change their mind
+        // and is just annoying. The diagnostic screen (planned, #21) will
+        // expose a "try again" path for users who want to re-trigger.
+        private const val KEY_BATTERY_EXEMPTION_REQUESTED = "battery_exemption_requested"
         internal const val RECENT_FOREGROUND_LOCATION_MAX_AGE_MS = 120_000L
         internal const val NATIVE_LOCATION_AUTH_REFRESH_DEBOUNCE_MS = 5000L
         private const val WELCOME_NOTIFICATION_ID = 1001
@@ -125,7 +131,8 @@ class MainActivity : HotwireActivity() {
         internal fun shouldRequestBatteryOptimizationExemption(
             sdkInt: Int,
             isIgnoringBatteryOptimizations: Boolean,
-            hasBackgroundPermission: Boolean
+            hasBackgroundPermission: Boolean,
+            alreadyRequested: Boolean
         ): Boolean {
             // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is API 23+ but
             // only meaningful once we have the location permission we'd
@@ -133,6 +140,9 @@ class MainActivity : HotwireActivity() {
             if (sdkInt < Build.VERSION_CODES.M) return false
             if (!hasBackgroundPermission) return false
             if (isIgnoringBatteryOptimizations) return false
+            // The OS dialog is modal and can't be silenced beyond user
+            // dismissal. Re-firing it on every resume is hostile.
+            if (alreadyRequested) return false
             return true
         }
 
@@ -1147,6 +1157,18 @@ class MainActivity : HotwireActivity() {
             .apply()
     }
 
+    private fun wasBatteryExemptionRequested(): Boolean {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_BATTERY_EXEMPTION_REQUESTED, false)
+    }
+
+    private fun markBatteryExemptionRequested() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_BATTERY_EXEMPTION_REQUESTED, true)
+            .apply()
+    }
+
     /**
      * Two-step OEM-killer defense, fired right after background location is
      * granted by the user. Both steps are no-ops if their precondition is
@@ -1167,9 +1189,11 @@ class MainActivity : HotwireActivity() {
         if (shouldRequestBatteryOptimizationExemption(
                 sdkInt = Build.VERSION.SDK_INT,
                 isIgnoringBatteryOptimizations = isIgnoringBatteryOptimizations(),
-                hasBackgroundPermission = hasBackgroundLocationPermission()
+                hasBackgroundPermission = hasBackgroundLocationPermission(),
+                alreadyRequested = wasBatteryExemptionRequested()
             )
         ) {
+            markBatteryExemptionRequested()
             requestIgnoreBatteryOptimizations()
         }
 
@@ -1318,6 +1342,16 @@ class MainActivity : HotwireActivity() {
         // Start geofence-based tracking via WorkManager
         LocationWorker.enqueuePeriodicWork(this)
         LocationWorker.enqueueOneShot(this)
+
+        // Existing-install path: the hardenBackgroundTrackingAgainstOemKillers
+        // call in backgroundLocationPermissionLauncher only fires on first
+        // grant. For users who already had the permission before this APK
+        // shipped, we call it here so the OEM-killer defense
+        // (battery-optimization exemption + Samsung onboarding) auto-applies
+        // on the next app resume — without requiring a permission re-grant.
+        // Both inner gates are once-per-install pref-backed, so calling on
+        // every resume is a cheap no-op once satisfied.
+        hardenBackgroundTrackingAgainstOemKillers()
     }
 
     /**
