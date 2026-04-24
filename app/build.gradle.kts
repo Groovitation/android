@@ -24,8 +24,8 @@ android {
         applicationId = "io.blaha.groovitation"
         minSdk = 28
         targetSdk = 35
-        versionCode = 141
-        versionName = "1.0.140"
+        versionCode = 143
+        versionName = "1.0.142"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
@@ -153,5 +153,9 @@ dependencies {
     // null-return specifically) stay observable in CI. Pinned to the same
     // okhttp version we use in production to keep class-loading consistent.
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // #770: TestListenableWorkerBuilder drives the worker in-process so the
+    // app's Application.onCreate periodic LocationWorker can't race our
+    // test's one-shot against the MockWebServer (pipeline #10836 failure).
+    androidTestImplementation("androidx.work:work-testing:2.9.0")
     androidTestUtil("androidx.test:orchestrator:1.5.0")
 }
