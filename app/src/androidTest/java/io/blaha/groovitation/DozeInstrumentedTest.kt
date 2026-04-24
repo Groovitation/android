@@ -105,6 +105,20 @@ class DozeInstrumentedTest {
             .build()
         val uniqueName = "issue-798-doze-oneshot-${System.nanoTime()}"
         val workManager = WorkManager.getInstance(context)
+
+        // Clear capturedOutcomes immediately before enqueue so the assertion
+        // below is scoped to just this one-shot's emissions. Before the
+        // 2026-04-24 self-cancel fix (human/scruff3-stop-self-cancel),
+        // Application.onCreate's periodic enqueue was being silently
+        // cancelled on every MainActivity.onResume and never emitted an
+        // outcome — this test's "outcomes.size <= 1" assertion happened to
+        // pass because of that bug. With the bug fixed, the periodic
+        // legitimately runs during the test session and can emit its own
+        // SKIPPED_NO_PERSON_UUID; scoping the capture to just-after-enqueue
+        // preserves the test's real intent ("this one-shot produced exactly
+        // one Outcome") without being coupled to app-startup side effects.
+        LocationWorkerTestHooks.capturedOutcomes.clear()
+
         workManager.enqueueUniqueWork(
             uniqueName,
             androidx.work.ExistingWorkPolicy.REPLACE,
