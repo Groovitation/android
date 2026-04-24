@@ -134,4 +134,120 @@ class BackgroundLocationGateTest {
             )
         )
     }
+
+    // -- Battery optimization exemption gate -------------------------------
+
+    @Test
+    fun `pre-M never requests battery optimization exemption`() {
+        assertFalse(
+            "ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is API 23+",
+            MainActivity.shouldRequestBatteryOptimizationExemption(
+                sdkInt = Build.VERSION_CODES.LOLLIPOP_MR1,
+                isIgnoringBatteryOptimizations = false,
+                hasBackgroundPermission = true
+            )
+        )
+    }
+
+    @Test
+    fun `does not request exemption when already exempt`() {
+        assertFalse(
+            MainActivity.shouldRequestBatteryOptimizationExemption(
+                sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                isIgnoringBatteryOptimizations = true,
+                hasBackgroundPermission = true
+            )
+        )
+    }
+
+    @Test
+    fun `does not request exemption without background-location permission`() {
+        // The exemption only matters once we have something background-y to
+        // protect. Asking earlier would be permission whiplash.
+        assertFalse(
+            MainActivity.shouldRequestBatteryOptimizationExemption(
+                sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                isIgnoringBatteryOptimizations = false,
+                hasBackgroundPermission = false
+            )
+        )
+    }
+
+    @Test
+    fun `requests exemption when background permission granted and not exempt`() {
+        assertTrue(
+            MainActivity.shouldRequestBatteryOptimizationExemption(
+                sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                isIgnoringBatteryOptimizations = false,
+                hasBackgroundPermission = true
+            )
+        )
+    }
+
+    // -- Samsung sleeping-apps onboarding gate -----------------------------
+
+    @Test
+    fun `samsung onboarding skipped on non-samsung devices`() {
+        assertFalse(
+            "Pixel/OnePlus/etc don't have Samsung's sleeping-apps setting",
+            MainActivity.shouldShowSamsungSleepingAppsOnboarding(
+                manufacturer = "Google",
+                hasBackgroundPermission = true,
+                onboardingAlreadyShown = false
+            )
+        )
+    }
+
+    @Test
+    fun `samsung onboarding skipped when manufacturer is null`() {
+        assertFalse(
+            MainActivity.shouldShowSamsungSleepingAppsOnboarding(
+                manufacturer = null,
+                hasBackgroundPermission = true,
+                onboardingAlreadyShown = false
+            )
+        )
+    }
+
+    @Test
+    fun `samsung onboarding matches case-insensitively`() {
+        assertTrue(
+            MainActivity.shouldShowSamsungSleepingAppsOnboarding(
+                manufacturer = "Samsung",
+                hasBackgroundPermission = true,
+                onboardingAlreadyShown = false
+            )
+        )
+        assertTrue(
+            MainActivity.shouldShowSamsungSleepingAppsOnboarding(
+                manufacturer = "SAMSUNG",
+                hasBackgroundPermission = true,
+                onboardingAlreadyShown = false
+            )
+        )
+    }
+
+    @Test
+    fun `samsung onboarding capped to one show per install`() {
+        assertFalse(
+            MainActivity.shouldShowSamsungSleepingAppsOnboarding(
+                manufacturer = "samsung",
+                hasBackgroundPermission = true,
+                onboardingAlreadyShown = true
+            )
+        )
+    }
+
+    @Test
+    fun `samsung onboarding skipped without background permission`() {
+        // Onboarding is the second step; without background permission
+        // there's nothing to protect from sleeping-apps yet.
+        assertFalse(
+            MainActivity.shouldShowSamsungSleepingAppsOnboarding(
+                manufacturer = "samsung",
+                hasBackgroundPermission = false,
+                onboardingAlreadyShown = false
+            )
+        )
+    }
 }

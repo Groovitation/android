@@ -22,6 +22,14 @@
     <!-- Wake lock for background tasks -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Allow asking the OS to exempt us from battery optimizations.
+         Used to keep WorkManager's 15-min periodic location worker alive on
+         OEMs (especially Samsung) that aggressively shelve apps in
+         restricted/standby buckets. Sensitive permission — Play Console
+         requires justification: opt-in continuous-location proximity
+         feature, clearly disclosed in the in-app onboarding flow. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Feature declarations -->
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
