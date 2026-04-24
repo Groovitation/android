@@ -200,19 +200,43 @@ class LocationWorker(
         try {
             val testHooks = LocationWorkerTestHooks.takeIf { it.enabled }
 
-            // 1. Get current location
+            // 1. Get current location.
+            //
+            // Two-stage fetch: try BALANCED first (cheap — wifi/cell + cached
+            // network location), fall back to HIGH_ACCURACY (GPS) if that
+            // returns null. On Samsung devices with the screen off (the
+            // 2026-04-24 Ben S24+ case), BALANCED frequently returns null
+            // because OneUI discards the cached fix aggressively in
+            // background. HIGH_ACCURACY wakes the GPS chip for ~10 sec and
+            // reliably returns — battery cost ~10 sec of GPS every 15 min
+            // which is well under 1% daily drain. We'd rather spend the
+            // battery than post nothing.
             val location = if (testHooks != null) {
                 testHooks.overrideLocation
             } else {
                 val fusedClient = LocationServices.getFusedLocationProviderClient(applicationContext)
-                val cancellationToken = CancellationTokenSource()
-                fusedClient.getCurrentLocation(
+                val balancedToken = CancellationTokenSource()
+                val balanced = fusedClient.getCurrentLocation(
                     Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-                    cancellationToken.token
+                    balancedToken.token
                 ).await()
+                if (balanced != null) {
+                    balanced
+                } else {
+                    Log.d(TAG, "Balanced-power location returned null; retrying with high accuracy")
+                    val highAccuracyToken = CancellationTokenSource()
+                    fusedClient.getCurrentLocation(
+                        Priority.PRIORITY_HIGH_ACCURACY,
+                        highAccuracyToken.token
+                    ).await()
+                }
             }
 
             if (location == null) {
+                // Both BALANCED and HIGH_ACCURACY returned null. At this
+                // point either the GPS has no signal, the radios are off,
+                // or the device is in a very restrictive power state.
+                // Retry rather than fail — next tick might succeed.
                 emitOutcome(Outcome.SKIPPED_NO_LOCATION_FIX)
                 return Result.retry()
             }
