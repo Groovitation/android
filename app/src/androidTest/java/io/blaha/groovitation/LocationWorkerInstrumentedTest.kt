@@ -8,6 +8,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import androidx.work.ListenableWorker
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
 import io.blaha.groovitation.services.LocationWorker
 import io.blaha.groovitation.services.LocationWorkerTestHooks
@@ -65,6 +67,19 @@ class LocationWorkerInstrumentedTest {
     @Before
     fun setUp() {
         LocationWorkerTestHooks.reset()
+
+        // #770 / CI pipeline #10836 + #10840: the app's GroovitationApplication.onCreate
+        // enqueues the periodic LocationWorker at process start (with a 0 initial
+        // delay, per WorkManager defaults). Even with TestListenableWorkerBuilder
+        // running our test's doWork in-process, that periodic fires on WorkManager's
+        // own thread and, once baseUrlOverride is set, also posts to our
+        // MockWebServer — which is what pushed the positive test's requestCount to
+        // 2. Cancel all LocationWorker work and wait for every WorkInfo to be
+        // finished BEFORE enabling hooks. After this point the only code that can
+        // drive the worker is the explicit TestListenableWorkerBuilder call.
+        WorkManager.getInstance(context).cancelAllWork().result.get(5, TimeUnit.SECONDS)
+        waitForAllLocationWorkerWorkToBeTerminal()
+
         mockServer = MockWebServer().apply { start() }
 
         // Seed prerequisites the worker reads from SharedPreferences. Positive
@@ -90,6 +105,30 @@ class LocationWorkerInstrumentedTest {
         }
         LocationWorkerTestHooks.suppressGeofence = true
         LocationWorkerTestHooks.baseUrlOverride = mockServer.url("/").toString().trimEnd('/')
+    }
+
+    /**
+     * Polls `WorkManager.getWorkInfosByTag`-equivalent state until every
+     * LocationWorker instance has reached a terminal state. `cancelAllWork`
+     * returns an Operation that completes once the cancellation is *scheduled*,
+     * but a work item that's already RUNNING is allowed to finish — we wait
+     * here until it has. 5-second budget is generous; a stable tree cancels
+     * within tens of milliseconds.
+     */
+    private fun waitForAllLocationWorkerWorkToBeTerminal() {
+        val workManager = WorkManager.getInstance(context)
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            val periodic = workManager
+                .getWorkInfosForUniqueWork("groovitation_location_periodic")
+                .get(2, TimeUnit.SECONDS)
+            val oneshot = workManager
+                .getWorkInfosForUniqueWork(LocationWorker.WORK_NAME_ONESHOT)
+                .get(2, TimeUnit.SECONDS)
+            val allTerminal = (periodic + oneshot).all { it.state.isFinished }
+            if (allTerminal) return
+            Thread.sleep(100)
+        }
     }
 
     @After
