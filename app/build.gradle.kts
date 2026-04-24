@@ -24,8 +24,8 @@ android {
         applicationId = "io.blaha.groovitation"
         minSdk = 28
         targetSdk = 35
-        versionCode = 140
-        versionName = "1.0.139"
+        versionCode = 141
+        versionName = "1.0.140"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
@@ -148,5 +148,10 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-intents:3.5.1")
     androidTestImplementation("androidx.test.espresso:espresso-web:3.5.1")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    // #770: MockWebServer lets LocationWorkerInstrumentedTest drive the real
+    // HTTP path so the worker's silent-skip branches (resolveLocationAuth
+    // null-return specifically) stay observable in CI. Pinned to the same
+    // okhttp version we use in production to keep class-loading consistent.
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestUtil("androidx.test:orchestrator:1.5.0")
 }
