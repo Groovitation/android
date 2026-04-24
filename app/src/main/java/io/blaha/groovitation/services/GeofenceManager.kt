@@ -211,14 +211,27 @@ class GeofenceManager(private val context: Context) {
                 return
             }
 
+            // #845: setInitialTrigger(0) — no INITIAL_TRIGGER_ENTER. Geofences
+            // fire only on genuine motion-driven ENTER transitions after
+            // registration; we deliberately do NOT re-fire for fences the user
+            // is already inside at registration time. Without this, every
+            // refreshGeofences() (i.e. every app launch / location push / boot)
+            // re-bursts ENTER events for every interest fence the user is
+            // already standing in. Ben's S24+ saw 15 simultaneous Trost-era
+            // ENTER notifications in 80 ms on 2026-04-24 from this exact path.
+            //
+            // Combined with the server-side ProximityNotificationDispatcher
+            // (#845) the ENTER path is now: motion crosses fence → broadcast
+            // receiver POSTs location → server checks 90-day ack window +
+            // race-claims dedup row → FCM push to every device for the user.
             val request = GeofencingRequest.Builder()
-                .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+                .setInitialTrigger(0)
                 .addGeofences(geofences)
                 .build()
 
             geofencingClient.addGeofences(request, geofencePendingIntent)
                 .addOnSuccessListener {
-                    Log.d(TAG, "Registered ${geofences.size} geofences")
+                    Log.d(TAG, "Registered ${geofences.size} geofences (initialTrigger=0)")
                 }
                 .addOnFailureListener { e ->
                     Log.e(TAG, "Failed to register geofences", e)
