@@ -333,8 +333,17 @@ firebase-test-lab-nightly:
     # Run automatically only on the nightly scheduled pipeline.
     - if: '$CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_REF_NAME == "main"'
       when: always
-    # Allow manual fire from the pipeline UI for one-off investigations.
-    - when: manual
+    # Allow manual fire from a push or `Run pipeline` web trigger so a
+    # maintainer can investigate an OEM-shaped bug between nightlies.
+    # Explicitly scoped to push/web (NOT merge_request_event) — the rest
+    # of this file's jobs are ruleless and therefore push-only, so an
+    # unconditional `when: manual` fallback would be the only eligible
+    # job in an MR-event pipeline. With this job's `needs: build` then
+    # unsatisfied (build doesn't run on MR events), GitLab would create
+    # a zero-job MR pipeline and mark it failed (#10938 incident on
+    # !44 head).
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web"'
+      when: manual
       allow_failure: true
   needs:
     - job: build
