@@ -194,24 +194,20 @@ class LocationWorker(
 
             Log.d(TAG, "Location: ${location.latitude}, ${location.longitude} (accuracy: ${location.accuracy}m)")
 
-            // 2. Build payload and either capture (test) or post (production)
+            // 2. Build payload and POST to the server. #770: the HTTP path
+            // always runs — including under instrumented tests, which redirect
+            // the POST at a MockWebServer via baseUrlOverride and assert on
+            // what the server received. The previous "test-mode captures and
+            // skips" shape hid the resolveLocationAuth null-return branch
+            // (Ben's 2026-04-23 outage), which is the specific regression
+            // #770 prevents from ever re-entering CI.
             val payload = buildLocationPayload(
                 location.latitude,
                 location.longitude,
                 location.accuracy.toDouble(),
                 if (location.hasAltitude()) location.altitude else null
             )
-
-            if (testHooks != null) {
-                testHooks.capturedUploads.add(
-                    LocationWorkerTestHooks.CapturedUpload(personUuid, payload)
-                )
-                // Captured uploads in test mode count as POSTED — the
-                // production POST path is bypassed by design.
-                emitOutcome(Outcome.POSTED, "test=true")
-            } else {
-                postLocationPayload(personUuid, payload)
-            }
+            postLocationPayload(personUuid, payload)
 
             // 3-4. Geofence operations (skipped when test hooks suppress them)
             if (testHooks == null || !testHooks.suppressGeofence) {
@@ -282,9 +278,14 @@ class LocationWorker(
                 return@withContext
             }
 
+        // #770: instrumented tests redirect POSTs at a MockWebServer by
+        // setting LocationWorkerTestHooks.baseUrlOverride. Production reads
+        // from BuildConfig as before.
+        val baseUrl = LocationWorkerTestHooks.takeIf { it.enabled }?.baseUrlOverride
+            ?: BuildConfig.BASE_URL
         try {
             val request = Request.Builder()
-                .url("${BuildConfig.BASE_URL}/people/$personUuid/location")
+                .url("$baseUrl/people/$personUuid/location")
                 .post(json.toString().toRequestBody("application/json".toMediaType()))
                 .addHeader("Content-Type", "application/json")
                 .addHeader(resolvedAuth.headerName, resolvedAuth.headerValue)
