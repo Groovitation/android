@@ -14,6 +14,7 @@ import io.blaha.groovitation.components.BiometricComponent
 import io.blaha.groovitation.components.LocationComponent
 import io.blaha.groovitation.components.NotificationTokenComponent
 import io.blaha.groovitation.components.ShareComponent
+import io.blaha.groovitation.services.LocationWorker
 
 class GroovitationApplication : Application() {
 
@@ -21,6 +22,16 @@ class GroovitationApplication : Application() {
         super.onCreate()
         configureHotwire()
         createNotificationChannels()
+        // Belt-and-suspenders to MainActivity.tryStartBackgroundTracking +
+        // BootReceiver: if WorkManager cancels the periodic location worker
+        // during OEM cleanup (Samsung Deep Sleep, Adaptive Battery, etc.)
+        // and the user doesn't reopen the app, there is nothing else that
+        // re-enqueues it. Application.onCreate runs every time the process
+        // is started — including when a BroadcastReceiver, FCM push, or
+        // geofence event wakes us — so an idempotent KEEP enqueue here
+        // ensures periodic work re-homes itself the moment any part of the
+        // app spins up. (#795)
+        LocationWorker.enqueuePeriodicWork(this)
         if (BuildConfig.DEBUG) {
             registerDebugReceivers()
         }
