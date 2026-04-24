@@ -22,6 +22,22 @@ internal data class ResolvedLocationAuth(
 )
 
 /**
+ * #772: composite return for [LocationTrackingService.resolveLocationAuthWithDiagnostic].
+ *
+ * `auth` is null when no auth source is available (the silent-skip branch
+ * the structured-outcome work is built to expose). `diagnosticExtras` is
+ * always populated with a single-line summary of the inputs the resolver
+ * inspected, suitable for appending to a `LocationWorker outcome=...` log
+ * line so on-call can grep `webViewCookies=none storedToken=absent` and
+ * know exactly which auth source was missing without re-deriving it from
+ * a separate Log.w preceding the outcome.
+ */
+internal data class LocationAuthLookup(
+    val auth: ResolvedLocationAuth?,
+    val diagnosticExtras: String
+)
+
+/**
  * Transition shim for upgrading from foreground service to geofence-based tracking.
  *
  * On ACTION_START: enqueues WorkManager periodic task and stops self (no foreground service).
@@ -113,12 +129,26 @@ class LocationTrackingService : Service() {
             }
         }
 
-        internal fun resolveLocationAuth(context: Context, callerTag: String): ResolvedLocationAuth? {
+        internal fun resolveLocationAuth(context: Context, callerTag: String): ResolvedLocationAuth? =
+            resolveLocationAuthWithDiagnostic(context, callerTag).auth
+
+        /**
+         * #772: variant of [resolveLocationAuth] that also returns a one-line
+         * diagnostic summary of the inputs it inspected. The worker uses this
+         * to stamp `webViewCookies=... storedToken=... storedSession=...`
+         * onto its `LocationWorker outcome=SKIPPED_NO_AUTH` log line so the
+         * structured outcome itself carries the why, instead of requiring
+         * on-call to correlate it with an adjacent Log.w. The pure-function
+         * formatter [buildLocationAuthDiagnostic] is unit-tested separately.
+         */
+        internal fun resolveLocationAuthWithDiagnostic(
+            context: Context,
+            callerTag: String
+        ): LocationAuthLookup {
             val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val webViewCookie = currentWebViewCookie(callerTag)
-            val storedSessionCookie = extractSessionCookie(
-                prefs.getString(KEY_SESSION_COOKIE, null)
-            )
+            val storedSessionCookieRaw = prefs.getString(KEY_SESSION_COOKIE, null)
+            val storedSessionCookie = extractSessionCookie(storedSessionCookieRaw)
             val storedLocationToken = prefs.getString(KEY_LOCATION_TOKEN, null)
 
             val resolved = resolveLocationAuthFromSources(
@@ -126,13 +156,36 @@ class LocationTrackingService : Service() {
                 webViewCookie = webViewCookie,
                 storedSessionCookie = storedSessionCookie
             )
+            val diagnostic = buildLocationAuthDiagnostic(
+                webViewCookie = webViewCookie,
+                storedLocationToken = storedLocationToken,
+                storedSessionCookie = storedSessionCookieRaw
+            )
             if (resolved == null) {
-                Log.w(
-                    callerTag,
-                    "No location auth available. webViewCookies=${describeCookieNames(webViewCookie)}"
-                )
+                Log.w(callerTag, "No location auth available. $diagnostic")
             }
-            return resolved
+            return LocationAuthLookup(auth = resolved, diagnosticExtras = diagnostic)
+        }
+
+        /**
+         * #772: pure-function formatter for the SKIPPED_NO_AUTH (and
+         * adjacent) diagnostic line. Output shape:
+         * `webViewCookies=[name1, name2] storedToken=present storedSession=absent`
+         * — keys are stable so prod logs can be grepped/aggregated. `[ ]`
+         * brackets and the comma-space separator inside the cookie list
+         * mirror the existing [describeCookieNames] format already used by
+         * adjacent Log.w lines, so on-call sees a uniform shape.
+         */
+        internal fun buildLocationAuthDiagnostic(
+            webViewCookie: String?,
+            storedLocationToken: String?,
+            storedSessionCookie: String?
+        ): String {
+            val webViewSummary = describeCookieNames(webViewCookie)
+            val tokenState = if (storedLocationToken?.trim()?.isNotEmpty() == true) "present" else "absent"
+            val sessionState =
+                if (extractSessionCookie(storedSessionCookie) != null) "present" else "absent"
+            return "webViewCookies=$webViewSummary storedToken=$tokenState storedSession=$sessionState"
         }
 
         internal fun resolveSessionCookie(context: Context, callerTag: String): ResolvedSessionCookie? {

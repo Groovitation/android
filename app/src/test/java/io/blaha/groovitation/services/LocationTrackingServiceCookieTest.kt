@@ -133,6 +133,83 @@ class LocationTrackingServiceCookieTest {
         assertEquals("stored-location-token", resolved?.source)
     }
 
+    // #772: SKIPPED_NO_AUTH outcome line includes a structured diagnostic so
+    // prod logs grepping `outcome=SKIPPED_NO_AUTH` see exactly which auth
+    // source was missing without consulting an adjacent Log.w. Pure-function
+    // formatter so the keys/format are stable across releases.
+    @Test
+    fun buildLocationAuthDiagnosticReportsAllSourcesAbsent() {
+        val diag = LocationTrackingService.buildLocationAuthDiagnostic(
+            webViewCookie = null,
+            storedLocationToken = null,
+            storedSessionCookie = null
+        )
+        assertEquals(
+            "webViewCookies=none storedToken=absent storedSession=absent",
+            diag
+        )
+    }
+
+    @Test
+    fun buildLocationAuthDiagnosticReportsLiveCookieNamesWithoutLeakingValues() {
+        val diag = LocationTrackingService.buildLocationAuthDiagnostic(
+            webViewCookie = "cf_clearance=cloudflare; _user_interface_session=secret-do-not-log",
+            storedLocationToken = null,
+            storedSessionCookie = null
+        )
+        // Cookie names appear in [name1,name2] form (matching describeCookieNames).
+        // Cookie values must not leak.
+        assertTrue(diag.contains("webViewCookies=[cf_clearance, _user_interface_session]"))
+        assertFalse(diag.contains("secret-do-not-log"))
+        assertFalse(diag.contains("cloudflare"))
+        assertTrue(diag.contains("storedToken=absent"))
+        assertTrue(diag.contains("storedSession=absent"))
+    }
+
+    @Test
+    fun buildLocationAuthDiagnosticMarksStoredTokenPresentWhenNonBlank() {
+        val diag = LocationTrackingService.buildLocationAuthDiagnostic(
+            webViewCookie = null,
+            storedLocationToken = "native-location-token",
+            storedSessionCookie = null
+        )
+        assertTrue(diag.contains("storedToken=present"))
+    }
+
+    @Test
+    fun buildLocationAuthDiagnosticTreatsBlankStoredTokenAsAbsent() {
+        // Trim-then-empty mirrors the storeLocationToken contract: blank
+        // values clear the pref. The diagnostic must agree to avoid a
+        // misleading "storedToken=present" while resolveLocationAuth still
+        // returns null.
+        val diag = LocationTrackingService.buildLocationAuthDiagnostic(
+            webViewCookie = null,
+            storedLocationToken = "   ",
+            storedSessionCookie = null
+        )
+        assertTrue(diag.contains("storedToken=absent"))
+    }
+
+    @Test
+    fun buildLocationAuthDiagnosticMarksStoredSessionPresentOnlyWhenAuthSessionCookieParsesOut() {
+        // The pref blob can hold cf_clearance+_user_interface_session merged.
+        // storedSession=present iff the auth cookie itself is parseable —
+        // matches resolveLocationAuthFromSources which only uses that cookie.
+        val authPresent = LocationTrackingService.buildLocationAuthDiagnostic(
+            webViewCookie = null,
+            storedLocationToken = null,
+            storedSessionCookie = "cf_clearance=cf; _user_interface_session=stored-session"
+        )
+        assertTrue(authPresent.contains("storedSession=present"))
+
+        val noAuth = LocationTrackingService.buildLocationAuthDiagnostic(
+            webViewCookie = null,
+            storedLocationToken = null,
+            storedSessionCookie = "cf_clearance=cf; remember_user_token=abc"
+        )
+        assertTrue(noAuth.contains("storedSession=absent"))
+    }
+
     @Test
     fun blankBridgeValuesClearStoredSessionCookieAndLocationToken() {
         testPrefs().edit()

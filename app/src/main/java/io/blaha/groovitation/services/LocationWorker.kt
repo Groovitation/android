@@ -321,9 +321,14 @@ class LocationWorker(
         personUuid: String,
         json: JSONObject
     ) = withContext(Dispatchers.IO) {
-        val resolvedAuth = LocationTrackingService.resolveLocationAuth(applicationContext, TAG)
+        // #772: SKIPPED_NO_AUTH was the silent-skip Ben's 2026-04-23 outage hit.
+        // Stamp the auth-source diagnostic directly onto the structured outcome
+        // line so prod can grep "outcome=SKIPPED_NO_AUTH webViewCookies=none
+        // storedToken=absent" without correlating an adjacent Log.w.
+        val authLookup = LocationTrackingService.resolveLocationAuthWithDiagnostic(applicationContext, TAG)
+        val resolvedAuth = authLookup.auth
             ?: run {
-                emitOutcome(Outcome.SKIPPED_NO_AUTH)
+                emitOutcome(Outcome.SKIPPED_NO_AUTH, authLookup.diagnosticExtras)
                 return@withContext
             }
 
