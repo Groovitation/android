@@ -1326,13 +1326,17 @@ class MainActivity : HotwireActivity() {
 
         Log.d(TAG, "tryStartBackgroundTracking: all conditions met, starting geofence-based tracking")
 
-        // Stop old foreground service if running (upgrade path)
-        try {
-            val stopIntent = Intent(this, LocationTrackingService::class.java).apply {
-                action = LocationTrackingService.ACTION_STOP
-            }
-            startService(stopIntent)
-        } catch (_: Exception) { }
+        // Legacy note: this block used to send LocationTrackingService.ACTION_STOP
+        // to shut down the old pre-shim foreground service on upgrade. That
+        // intent is asynchronous and its handler calls LocationWorker.cancel()
+        // — which would fire *after* the enqueue calls below, canceling the
+        // periodic + one-shot we just queued. Root cause of the 2026-04-24
+        // Samsung S24+ / S9 tablet background-silence: heartbeat NULL,
+        // WorkManager's "active-top 7x canceled" trail, and logcat showing
+        // "Periodic work enqueued" immediately followed 1ms later by
+        // "All location work cancelled" on every onResume. The service is
+        // now a transition shim with no FGS to stop — the intent is
+        // unneeded and actively harmful, so the block is removed.
 
         // Start geofence-based tracking via WorkManager
         LocationWorker.enqueuePeriodicWork(this)
