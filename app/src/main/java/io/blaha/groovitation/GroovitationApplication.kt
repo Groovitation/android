@@ -31,7 +31,23 @@ class GroovitationApplication : Application() {
         // geofence event wakes us — so an idempotent KEEP enqueue here
         // ensures periodic work re-homes itself the moment any part of the
         // app spins up. (#795)
-        LocationWorker.enqueuePeriodicWork(this)
+        //
+        // Wrapped in try/catch because Robolectric and some OEM-test setups
+        // don't have WorkManager initialized at Application.onCreate time;
+        // we'd rather skip the re-enqueue than crash app startup. The
+        // foreground path (MainActivity.onResume → tryStartBackgroundTracking)
+        // is the user-visible path and is independently exercised on every
+        // app open.
+        try {
+            LocationWorker.enqueuePeriodicWork(this)
+        } catch (e: IllegalStateException) {
+            android.util.Log.w(
+                "GroovitationApplication",
+                "WorkManager not initialized at Application.onCreate; skipping " +
+                    "periodic re-enqueue (will retry on next MainActivity.onResume)",
+                e
+            )
+        }
         if (BuildConfig.DEBUG) {
             registerDebugReceivers()
         }

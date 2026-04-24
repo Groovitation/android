@@ -42,6 +42,39 @@ class LocationWorker(
     params: WorkerParameters
 ) : CoroutineWorker(context, params) {
 
+    /**
+     * Structured outcome of a single `doWork()` invocation. Every exit path
+     * in the worker emits exactly one outcome via [emitOutcome] — log line
+     * + capture into [LocationWorkerTestHooks.capturedOutcomes].
+     *
+     * Designed to make the historical "silent skip" failure mode observable.
+     * Previously, paths like `resolveLocationAuth() == null` returned
+     * `Result.success()` with one `Log.w` line. Externally that looked
+     * identical to a healthy run; investigations had no signal to grep on.
+     * With this enum, prod can grep `LocationWorker outcome=SKIPPED_NO_AUTH`
+     * and tests can assert on the captured outcome list.
+     */
+    enum class Outcome {
+        /** Posted location to /people/{uuid}/location and got a 2xx. */
+        POSTED,
+        /** No personUuid in prefs — user hasn't signed in / native bridge hasn't pushed yet. */
+        SKIPPED_NO_PERSON_UUID,
+        /** ACCESS_FINE_LOCATION and ACCESS_COARSE_LOCATION both denied. */
+        SKIPPED_NO_LOCATION_PERMISSION,
+        /** FusedLocationProvider returned null — common on screen-off / poor radio reception. */
+        SKIPPED_NO_LOCATION_FIX,
+        /**
+         * resolveLocationAuth() returned null — no WebView cookie, no stored
+         * session cookie, no stored location token. The classic silent-skip
+         * branch this enum is built to expose.
+         */
+        SKIPPED_NO_AUTH,
+        /** HTTP POST failed (non-2xx response or transport exception). */
+        HTTP_FAILED,
+        /** SecurityException thrown — permission revoked between check and use. */
+        PERMISSION_REVOKED_AT_RUNTIME
+    }
+
     companion object {
         private const val TAG = "LocationWorker"
         private const val WORK_NAME_PERIODIC = "groovitation_location_periodic"
@@ -95,6 +128,26 @@ class LocationWorker(
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME_ONESHOT)
             Log.d(TAG, "All location work cancelled")
         }
+
+        /**
+         * Single emission point for every `doWork()` exit. Writes a
+         * structured log line and records the outcome for tests to assert
+         * against.
+         */
+        internal fun emitOutcome(outcome: Outcome, extras: String = "") {
+            val suffix = if (extras.isNotEmpty()) " $extras" else ""
+            val message = "LocationWorker outcome=$outcome$suffix"
+            when (outcome) {
+                Outcome.POSTED,
+                Outcome.SKIPPED_NO_PERSON_UUID,
+                Outcome.SKIPPED_NO_LOCATION_PERMISSION -> Log.d(TAG, message)
+                Outcome.SKIPPED_NO_LOCATION_FIX,
+                Outcome.SKIPPED_NO_AUTH,
+                Outcome.HTTP_FAILED,
+                Outcome.PERMISSION_REVOKED_AT_RUNTIME -> Log.w(TAG, message)
+            }
+            LocationWorkerTestHooks.capturedOutcomes.add(outcome)
+        }
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -107,7 +160,7 @@ class LocationWorker(
         val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val personUuid = prefs.getString("person_uuid", null)
         if (personUuid == null) {
-            Log.d(TAG, "No person UUID configured, skipping")
+            emitOutcome(Outcome.SKIPPED_NO_PERSON_UUID)
             return Result.success()
         }
 
@@ -115,7 +168,7 @@ class LocationWorker(
             != PackageManager.PERMISSION_GRANTED &&
             ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) {
-            Log.w(TAG, "No location permission, skipping")
+            emitOutcome(Outcome.SKIPPED_NO_LOCATION_PERMISSION)
             return Result.success()
         }
 
@@ -135,7 +188,7 @@ class LocationWorker(
             }
 
             if (location == null) {
-                Log.w(TAG, "Could not get location")
+                emitOutcome(Outcome.SKIPPED_NO_LOCATION_FIX)
                 return Result.retry()
             }
 
@@ -153,6 +206,9 @@ class LocationWorker(
                 testHooks.capturedUploads.add(
                     LocationWorkerTestHooks.CapturedUpload(personUuid, payload)
                 )
+                // Captured uploads in test mode count as POSTED — the
+                // production POST path is bypassed by design.
+                emitOutcome(Outcome.POSTED, "test=true")
             } else {
                 postLocationPayload(personUuid, payload)
             }
@@ -192,10 +248,10 @@ class LocationWorker(
             return Result.success()
 
         } catch (e: SecurityException) {
-            Log.e(TAG, "Location permission denied", e)
+            emitOutcome(Outcome.PERMISSION_REVOKED_AT_RUNTIME, "exception=${e.javaClass.simpleName}")
             return Result.failure()
         } catch (e: Exception) {
-            Log.e(TAG, "Error in location worker", e)
+            emitOutcome(Outcome.HTTP_FAILED, "exception=${e.javaClass.simpleName}")
             return Result.retry()
         }
     }
@@ -222,7 +278,7 @@ class LocationWorker(
     ) = withContext(Dispatchers.IO) {
         val resolvedAuth = LocationTrackingService.resolveLocationAuth(applicationContext, TAG)
             ?: run {
-                Log.w(TAG, "No native location auth available, skipping background location post")
+                emitOutcome(Outcome.SKIPPED_NO_AUTH)
                 return@withContext
             }
 
@@ -236,18 +292,17 @@ class LocationWorker(
 
             httpClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    Log.d(TAG, "Location posted successfully")
+                    emitOutcome(Outcome.POSTED, "code=${response.code} authSource=${resolvedAuth.source}")
                 } else {
-                        Log.w(
-                            TAG,
-                            "Failed to post location: ${response.code} ${response.message} " +
-                            "(authSource=${resolvedAuth.source}, " +
-                            "webViewCookies=${resolvedAuth.webViewCookieSummary ?: "n/a"})"
-                        )
-                    }
+                    emitOutcome(
+                        Outcome.HTTP_FAILED,
+                        "code=${response.code} authSource=${resolvedAuth.source} " +
+                            "webViewCookies=${resolvedAuth.webViewCookieSummary ?: "n/a"}"
+                    )
                 }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error posting location", e)
+            emitOutcome(Outcome.HTTP_FAILED, "exception=${e.javaClass.simpleName}")
         }
     }
 
