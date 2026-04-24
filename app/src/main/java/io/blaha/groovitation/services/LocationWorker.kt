@@ -88,6 +88,38 @@ class LocationWorker(
         private const val TAG = "LocationWorker"
         private const val WORK_NAME_PERIODIC = "groovitation_location_periodic"
         internal const val WORK_NAME_ONESHOT = "groovitation_location_oneshot"
+
+        /**
+         * Pure JSON builder for the `/people/{uuid}/location` payload. Kept
+         * as a top-level companion function (no `applicationContext` reads)
+         * so the cross-repo contract test can call it with fixed inputs and
+         * compare against `shared-contracts/android-location-payload-v1.json`
+         * (#773). The instance method [buildLocationPayload] resolves
+         * `deviceId` and `timestamp` from the system and delegates here.
+         *
+         * Field-name and source-string changes here MUST be coordinated
+         * with the matching core-side `LocationUpdate` parser
+         * (`PeopleController.LocationUpdate` + `locationUpdateFormat`) and
+         * the mirrored fixture in
+         * `pekko-backend/src/test/resources/contracts/android-location-payload-v1.json`.
+         */
+        internal fun buildLocationPayloadJson(
+            latitude: Double,
+            longitude: Double,
+            accuracy: Double,
+            altitude: Double?,
+            deviceId: String,
+            timestamp: Long
+        ): JSONObject = JSONObject().apply {
+            put("latitude", latitude)
+            put("longitude", longitude)
+            put("accuracy", accuracy)
+            altitude?.let { put("altitude", it) }
+            put("deviceType", "android")
+            put("source", "background-gps")
+            put("deviceId", deviceId)
+            put("timestamp", timestamp)
+        }
         private const val PREFS_NAME = "location_tracking_prefs"
         private const val KEY_LAST_GEOFENCE_LAT = "last_geofence_lat"
         private const val KEY_LAST_GEOFENCE_LNG = "last_geofence_lng"
@@ -306,16 +338,14 @@ class LocationWorker(
         longitude: Double,
         accuracy: Double,
         altitude: Double?
-    ): JSONObject = JSONObject().apply {
-        put("latitude", latitude)
-        put("longitude", longitude)
-        put("accuracy", accuracy)
-        altitude?.let { put("altitude", it) }
-        put("deviceType", "android")
-        put("source", "background-gps")
-        put("deviceId", Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID))
-        put("timestamp", System.currentTimeMillis())
-    }
+    ): JSONObject = buildLocationPayloadJson(
+        latitude = latitude,
+        longitude = longitude,
+        accuracy = accuracy,
+        altitude = altitude,
+        deviceId = Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID),
+        timestamp = System.currentTimeMillis()
+    )
 
     private suspend fun postLocationPayload(
         personUuid: String,

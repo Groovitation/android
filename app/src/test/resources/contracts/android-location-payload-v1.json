@@ -1,0 +1,10 @@
+{
+  "latitude": 31.7619,
+  "longitude": -106.485,
+  "accuracy": 12.0,
+  "altitude": 1140.0,
+  "deviceType": "android",
+  "source": "background-gps",
+  "deviceId": "abc123def456ghi789",
+  "timestamp": 1735689600000
+}
