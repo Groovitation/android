@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.View
+import android.webkit.CookieManager
 import android.webkit.HttpAuthHandler
 import android.webkit.JavascriptInterface
 import androidx.core.app.NotificationManagerCompat
@@ -379,6 +380,12 @@ class GroovitationWebFragment : HotwireWebFragment() {
         fun setSessionCookie(cookie: String) {
             val appContext = activity?.applicationContext ?: return
             val stored = LocationTrackingService.storeSessionCookie(appContext, cookie, TAG)
+            // Force the WebView cookie store to disk now. The JS bridge
+            // fires this the moment the web layer has a fresh auth cookie
+            // it wants native code to have access to; background workers
+            // read CookieManager from disk, so an unflushed in-memory cookie
+            // is effectively invisible to them if the process dies.
+            CookieManager.getInstance().flush()
             if (stored) {
                 activity?.runOnUiThread {
                     (activity as? MainActivity)?.onNativeLocationAuthReadyFromWeb()
@@ -390,6 +397,10 @@ class GroovitationWebFragment : HotwireWebFragment() {
         fun setLocationToken(token: String) {
             val appContext = activity?.applicationContext ?: return
             val stored = LocationTrackingService.storeLocationToken(appContext, token, TAG)
+            // Sibling of setSessionCookie: pair the token-prefs write with a
+            // cookie flush so the native-visible auth state (prefs + cookies)
+            // is coherent after any JS-bridge auth push.
+            CookieManager.getInstance().flush()
             if (stored) {
                 activity?.runOnUiThread {
                     (activity as? MainActivity)?.onNativeLocationAuthReadyFromWeb()
