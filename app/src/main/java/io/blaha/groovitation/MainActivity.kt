@@ -434,6 +434,18 @@ class MainActivity : HotwireActivity() {
         foregroundLocationManager.stopContinuousTracking()
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Belt-and-suspenders to onPause: onStop fires in some system-
+        // initiated teardown paths (Samsung Deep Sleep, aggressive OEM
+        // killers) where onPause may not have already flushed, or where the
+        // user took a different path to background the app. Flush again so
+        // background workers reading CookieManager from disk see the
+        // latest session cookie even when the WebView process gets killed
+        // without a clean onPause-then-onStop sequence.
+        CookieManager.getInstance().flush()
+    }
+
     override fun onResume() {
         super.onResume()
         LocationTrackingService.refreshCookie(this)
