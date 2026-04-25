@@ -235,6 +235,10 @@ class MainActivity : HotwireActivity() {
     private var pendingFileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCapture: PendingCameraCapture? = null
     private var activeImageIntakeDialog: BottomSheetDialog? = null
+
+    // Home photo upload state
+    private var pendingHomePhotoUpload: Boolean = false
+    private var activeHomePhotoIntakeDialog: BottomSheetDialog? = null
     private val nativeGoogleSignInCoordinator by lazy {
         NativeGoogleSignInCoordinator(
             googleIdTokenProvider = CredentialManagerGoogleIdTokenProvider(this),
@@ -315,6 +319,26 @@ class MainActivity : HotwireActivity() {
         } else {
             capture?.file?.delete()
             finishImageChooser(null)
+        }
+    }
+
+    // Home photo chooser launchers
+    private val homePhotoPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        finishHomePhotoChooser(uri?.let { arrayOf(it) })
+    }
+
+    private val homePhotoTakePictureLauncher = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        val capture = pendingCameraCapture
+        pendingCameraCapture = null
+        if (success && capture != null) {
+            finishHomePhotoChooser(arrayOf(capture.uri))
+        } else {
+            capture?.file?.delete()
+            finishHomePhotoChooser(null)
         }
     }
 
@@ -862,6 +886,85 @@ class MainActivity : HotwireActivity() {
         pendingCameraCapture = null
         pendingFileChooserCallback?.onReceiveValue(null)
         pendingFileChooserCallback = null
+    }
+
+    // Home photo upload methods
+    fun startHomePhotoChooser() {
+        if (pendingHomePhotoUpload) {
+            Log.w(TAG, "Home photo upload already in progress")
+            return
+        }
+
+        pendingHomePhotoUpload = true
+        showHomePhotoIntakeSheet()
+    }
+
+    private fun showHomePhotoIntakeSheet() {
+        activeHomePhotoIntakeDialog?.dismiss()
+
+        val dialog = BottomSheetDialog(this)
+        val contentView = layoutInflater.inflate(R.layout.dialog_image_intake_options, null)
+        dialog.setContentView(contentView)
+        var actionSelected = false
+
+        contentView.findViewById<View>(R.id.image_intake_choose_photos).setOnClickListener {
+            actionSelected = true
+            dialog.dismiss()
+            launchHomePhotoPicker()
+        }
+        contentView.findViewById<View>(R.id.image_intake_take_photo).setOnClickListener {
+            actionSelected = true
+            dialog.dismiss()
+            launchHomePhotoCamera()
+        }
+
+        dialog.setOnDismissListener {
+            if (activeHomePhotoIntakeDialog === dialog) {
+                activeHomePhotoIntakeDialog = null
+            }
+        }
+        dialog.setOnCancelListener {
+            if (!actionSelected && pendingHomePhotoUpload) {
+                finishHomePhotoChooser(null)
+            }
+        }
+
+        activeHomePhotoIntakeDialog = dialog
+        dialog.show()
+    }
+
+    private fun launchHomePhotoPicker() {
+        homePhotoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+
+    private fun launchHomePhotoCamera() {
+        val captureFile = File(getExternalFilesDir("camera"), "home_photo_${System.currentTimeMillis()}.jpg")
+        val captureUri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", captureFile)
+
+        pendingCameraCapture = PendingCameraCapture(captureUri, captureFile)
+        homePhotoTakePictureLauncher.launch(captureUri)
+    }
+
+    private fun finishHomePhotoChooser(uris: Array<Uri>?) {
+        activeHomePhotoIntakeDialog?.dismiss()
+        activeHomePhotoIntakeDialog = null
+
+        if (uris != null && uris.isNotEmpty()) {
+            uploadHomePhoto(uris[0])
+        } else {
+            Log.d(TAG, "Home photo chooser cancelled or no image selected")
+            pendingHomePhotoUpload = false
+        }
+    }
+
+    private fun uploadHomePhoto(uri: Uri) {
+        Log.d(TAG, "Starting home photo upload for URI: $uri")
+        // TODO: Implement actual upload logic to /people/{id}/home-photo endpoint
+        // For now, just mark as complete
+        pendingHomePhotoUpload = false
+        Log.d(TAG, "Home photo upload completed (placeholder)")
     }
 
     private fun persistReadPermissionIfPossible(uri: Uri) {

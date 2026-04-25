@@ -671,9 +671,18 @@ class GroovitationWebFragment : HotwireWebFragment() {
                     detail: { success: false, error: '$error' }
                 }));
             """.trimIndent()
-            
+
             activity?.runOnUiThread {
                 attachedWebView?.evaluateJavascript(script, null)
+            }
+        }
+
+        @JavascriptInterface
+        fun chooseHomePhoto() {
+            Log.d(TAG, "chooseHomePhoto called from JavaScript")
+            val mainActivity = activity as? MainActivity ?: return
+            activity?.runOnUiThread {
+                mainActivity.startHomePhotoChooser()
             }
         }
     }
