@@ -106,6 +106,16 @@ class GroovitationMessagingService : FirebaseMessagingService() {
             handleProximityMessage(applicationContext, message)
             return
         }
+        if (data["type"] == "friend_rsvp_change") {
+            // #852: friend RSVP / status-change batched push. The server builds the
+            // title ("Alice and Bob are attending Menil") and body ("Tap to see
+            // who's in") and supplies the event deep-link via `data.url`. We
+            // delegate to the existing IncomingPushNotification renderer — no
+            // rich media or ack endpoint, just a standard tap-to-deep-link push.
+            // The extra data fields (eventId/eventName/newStatus/changerCount)
+            // are preserved on the RemoteMessage for any future tap-time handling.
+            Log.d(TAG, "friend_rsvp_change push eventId=${data["eventId"].orEmpty()} count=${data["changerCount"].orEmpty()} status=${data["newStatus"].orEmpty()}")
+        }
 
         val push = IncomingPushNotification.fromRemoteMessage(message)
         if (push != null) {
