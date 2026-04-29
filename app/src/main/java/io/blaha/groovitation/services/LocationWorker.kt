@@ -3,7 +3,9 @@ package io.blaha.groovitation.services
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -124,6 +126,7 @@ class LocationWorker(
         private const val KEY_LAST_GEOFENCE_LAT = "last_geofence_lat"
         private const val KEY_LAST_GEOFENCE_LNG = "last_geofence_lng"
         private const val KEY_LAST_GEOFENCE_REFRESH_TIME = "last_geofence_refresh_time"
+        internal const val MAX_CACHED_LOCATION_AGE_MS = 2 * 60 * 1000L
         private const val GEOFENCE_REFRESH_DISTANCE_M = 500.0 // Refresh geofences if moved 500m
         private const val GEOFENCE_MAX_AGE_MS = 12 * 60 * 60 * 1000L // Re-register geofences every 12 hours
 
@@ -190,6 +193,29 @@ class LocationWorker(
             }
             LocationWorkerTestHooks.capturedOutcomes.add(outcome)
         }
+
+        internal fun locationAgeMillis(
+            location: Location,
+            nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos(),
+            nowWallClockMs: Long = System.currentTimeMillis()
+        ): Long? {
+            if (location.elapsedRealtimeNanos > 0L) {
+                return TimeUnit.NANOSECONDS.toMillis(nowElapsedRealtimeNanos - location.elapsedRealtimeNanos)
+            }
+            if (location.time > 0L) {
+                return nowWallClockMs - location.time
+            }
+            return null
+        }
+
+        internal fun isFreshEnough(
+            location: Location,
+            nowElapsedRealtimeNanos: Long = SystemClock.elapsedRealtimeNanos(),
+            nowWallClockMs: Long = System.currentTimeMillis()
+        ): Boolean {
+            val ageMs = locationAgeMillis(location, nowElapsedRealtimeNanos, nowWallClockMs)
+            return ageMs == null || ageMs <= MAX_CACHED_LOCATION_AGE_MS
+        }
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -252,15 +278,28 @@ class LocationWorker(
                     Priority.PRIORITY_BALANCED_POWER_ACCURACY,
                     balancedToken.token
                 ).await()
-                if (balanced != null) {
+                if (balanced != null && isFreshEnough(balanced)) {
                     balanced
                 } else {
-                    Log.d(TAG, "Balanced-power location returned null; retrying with high accuracy")
+                    val balancedAge = balanced?.let { locationAgeMillis(it) }
+                    val fallbackReason = if (balanced == null) {
+                        "returned null"
+                    } else {
+                        "was stale (age=${balancedAge ?: "unknown"}ms)"
+                    }
+                    Log.d(TAG, "Balanced-power location $fallbackReason; retrying with high accuracy")
                     val highAccuracyToken = CancellationTokenSource()
-                    fusedClient.getCurrentLocation(
+                    val highAccuracy = fusedClient.getCurrentLocation(
                         Priority.PRIORITY_HIGH_ACCURACY,
                         highAccuracyToken.token
                     ).await()
+                    if (highAccuracy != null && !isFreshEnough(highAccuracy)) {
+                        val highAccuracyAge = locationAgeMillis(highAccuracy)
+                        Log.w(TAG, "High-accuracy location was stale (age=${highAccuracyAge ?: "unknown"}ms); treating as no fix")
+                        null
+                    } else {
+                        highAccuracy
+                    }
                 }
             }
 
