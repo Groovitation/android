@@ -18,6 +18,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.google.android.gms.location.CurrentLocationRequest
+import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
@@ -127,6 +129,8 @@ class LocationWorker(
         private const val KEY_LAST_GEOFENCE_LNG = "last_geofence_lng"
         private const val KEY_LAST_GEOFENCE_REFRESH_TIME = "last_geofence_refresh_time"
         internal const val MAX_CACHED_LOCATION_AGE_MS = 2 * 60 * 1000L
+        internal const val CURRENT_LOCATION_MAX_UPDATE_AGE_MS = 0L
+        internal const val CURRENT_LOCATION_DURATION_MS = 20_000L
         private const val GEOFENCE_REFRESH_DISTANCE_M = 500.0 // Refresh geofences if moved 500m
         private const val GEOFENCE_MAX_AGE_MS = 12 * 60 * 60 * 1000L // Re-register geofences every 12 hours
 
@@ -216,6 +220,13 @@ class LocationWorker(
             val ageMs = locationAgeMillis(location, nowElapsedRealtimeNanos, nowWallClockMs)
             return ageMs == null || ageMs <= MAX_CACHED_LOCATION_AGE_MS
         }
+
+        internal fun currentLocationRequest(priority: Int): CurrentLocationRequest =
+            CurrentLocationRequest.Builder()
+                .setPriority(priority)
+                .setMaxUpdateAgeMillis(CURRENT_LOCATION_MAX_UPDATE_AGE_MS)
+                .setDurationMillis(CURRENT_LOCATION_DURATION_MS)
+                .build()
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -260,47 +271,28 @@ class LocationWorker(
 
             // 1. Get current location.
             //
-            // Two-stage fetch: try BALANCED first (cheap — wifi/cell + cached
-            // network location), fall back to HIGH_ACCURACY (GPS) if that
-            // returns null. On Samsung devices with the screen off (the
-            // 2026-04-24 Ben S24+ case), BALANCED frequently returns null
-            // because OneUI discards the cached fix aggressively in
-            // background. HIGH_ACCURACY wakes the GPS chip for ~10 sec and
-            // reliably returns — battery cost ~10 sec of GPS every 15 min
-            // which is well under 1% daily drain. We'd rather spend the
-            // battery than post nothing.
+            // Background posts must not reuse FusedLocationProvider cache. CI
+            // reproduced a provider cache entry with a fresh timestamp but old
+            // coordinates, which recorded a wrong background-gps row before the
+            // foreground high-accuracy path produced the correct fix. Ask for a
+            // no-cache HIGH_ACCURACY current fix first; keep a no-cache BALANCED
+            // fallback for devices where GPS cannot resolve during the worker
+            // window. The battery tradeoff is the same one accepted in the
+            // 2026-04-24 Ben S24+ case: a short GPS wake every 15 minutes is
+            // preferable to silently posting stale coordinates.
             val location = if (testHooks != null) {
                 testHooks.overrideLocation
             } else {
                 val fusedClient = LocationServices.getFusedLocationProviderClient(applicationContext)
-                val balancedToken = CancellationTokenSource()
-                val balanced = fusedClient.getCurrentLocation(
-                    Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-                    balancedToken.token
-                ).await()
-                if (balanced != null && isFreshEnough(balanced)) {
-                    balanced
-                } else {
-                    val balancedAge = balanced?.let { locationAgeMillis(it) }
-                    val fallbackReason = if (balanced == null) {
-                        "returned null"
-                    } else {
-                        "was stale (age=${balancedAge ?: "unknown"}ms)"
-                    }
-                    Log.d(TAG, "Balanced-power location $fallbackReason; retrying with high accuracy")
-                    val highAccuracyToken = CancellationTokenSource()
-                    val highAccuracy = fusedClient.getCurrentLocation(
-                        Priority.PRIORITY_HIGH_ACCURACY,
-                        highAccuracyToken.token
-                    ).await()
-                    if (highAccuracy != null && !isFreshEnough(highAccuracy)) {
-                        val highAccuracyAge = locationAgeMillis(highAccuracy)
-                        Log.w(TAG, "High-accuracy location was stale (age=${highAccuracyAge ?: "unknown"}ms); treating as no fix")
-                        null
-                    } else {
-                        highAccuracy
-                    }
-                }
+                requestFreshCurrentLocation(
+                    fusedClient = fusedClient,
+                    priority = Priority.PRIORITY_HIGH_ACCURACY,
+                    label = "High-accuracy"
+                ) ?: requestFreshCurrentLocation(
+                    fusedClient = fusedClient,
+                    priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                    label = "Balanced-power"
+                )
             }
 
             if (location == null) {
@@ -370,6 +362,32 @@ class LocationWorker(
             emitOutcome(Outcome.HTTP_FAILED, "exception=${e.javaClass.simpleName}")
             return Result.retry()
         }
+    }
+
+    private suspend fun requestFreshCurrentLocation(
+        fusedClient: FusedLocationProviderClient,
+        priority: Int,
+        label: String
+    ): Location? {
+        val token = CancellationTokenSource()
+        val location = fusedClient.getCurrentLocation(
+            currentLocationRequest(priority),
+            token.token
+        ).await()
+
+        if (location == null) {
+            Log.d(TAG, "$label current location returned null")
+            return null
+        }
+
+        val ageMs = locationAgeMillis(location)
+        if (!isFreshEnough(location)) {
+            Log.w(TAG, "$label current location was stale (age=${ageMs ?: "unknown"}ms); treating as no fix")
+            return null
+        }
+
+        Log.d(TAG, "$label current location accepted (age=${ageMs ?: "unknown"}ms, accuracy=${location.accuracy}m)")
+        return location
     }
 
     private fun buildLocationPayload(

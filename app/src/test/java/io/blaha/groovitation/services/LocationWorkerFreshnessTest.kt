@@ -1,6 +1,7 @@
 package io.blaha.groovitation.services
 
 import android.location.Location
+import com.google.android.gms.location.Priority
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -51,5 +52,14 @@ class LocationWorkerFreshnessTest {
 
         assertTrue(LocationWorker.isFreshEnough(location))
         assertNull(LocationWorker.locationAgeMillis(location))
+    }
+
+    @Test
+    fun `current location request disallows fused provider cache`() {
+        val request = LocationWorker.currentLocationRequest(Priority.PRIORITY_HIGH_ACCURACY)
+
+        assertEquals(Priority.PRIORITY_HIGH_ACCURACY, request.priority)
+        assertEquals(LocationWorker.CURRENT_LOCATION_MAX_UPDATE_AGE_MS, request.maxUpdateAgeMillis)
+        assertEquals(LocationWorker.CURRENT_LOCATION_DURATION_MS, request.durationMillis)
     }
 }
