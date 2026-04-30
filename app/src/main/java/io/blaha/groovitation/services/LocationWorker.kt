@@ -1,5 +1,6 @@
 package io.blaha.groovitation.services
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -364,6 +365,7 @@ class LocationWorker(
         }
     }
 
+    @SuppressLint("MissingPermission")
     private suspend fun requestFreshCurrentLocation(
         fusedClient: FusedLocationProviderClient,
         priority: Int,
