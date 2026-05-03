@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
+import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 import io.blaha.groovitation.BuildConfig
@@ -34,7 +35,13 @@ import java.util.concurrent.TimeUnit
  *    every device the user has registered. The notification itself is
  *    rendered by `ProximityNotificationRenderer` from the FCM receiver
  *    (`GroovitationMessagingService`), not here.
- *    On EXIT, posts location (no notification, same as before).
+ *    On EXIT (#1008): posts location AND cancels the in-tray notification
+ *    for any proximity fence the user just walked out of, so a notification
+ *    the user didn't engage with disappears automatically rather than
+ *    lingering for hours. The notification ID is recomputed locally from
+ *    the cached metadata's targetKind/targetId — same deterministic formula
+ *    `ProximityNotificationRenderer` used to display it. No server round
+ *    trip required: the cancel is pure UX cleanup.
  *
  * Pre-#845 this receiver also rendered notifications and posted the
  * `/api/proximity/notified` ack. Both responsibilities have moved to the
@@ -52,6 +59,21 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "GeofenceReceiver"
         private const val PREFS_NAME = "location_tracking_prefs"
+        private const val GEOFENCE_METADATA_KEY = "geofence_metadata"
+        // Must match `ProximityNotificationRenderer.NOTIFICATION_ID_BASE`. The
+        // renderer derives a notification ID via
+        //   `NOTIFICATION_ID_BASE + (dedupKey.hashCode() and 0xFFFF)`
+        // where `dedupKey = "$targetKind:$targetId"` (see
+        // `GroovitationMessagingService.handleProximityMessage`). We rebuild
+        // the same key from the geofence's cached metadata so cancel() targets
+        // the same notification the FCM-triggered renderer posted.
+        private const val NOTIFICATION_ID_BASE = 50000
+
+        internal fun proximityDedupKey(targetKind: String, targetId: String): String =
+            "$targetKind:$targetId"
+
+        internal fun proximityNotificationId(targetKind: String, targetId: String): Int =
+            NOTIFICATION_ID_BASE + (proximityDedupKey(targetKind, targetId).hashCode() and 0xFFFF)
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -100,6 +122,13 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 }
             }
             Geofence.GEOFENCE_TRANSITION_EXIT -> {
+                // #1008: cancel any in-tray proximity notification for fences
+                // the user just walked out of. Pure UX cleanup; no server
+                // round trip and no DB write — the server-side cooldown was
+                // already recorded on ENTER's display. Skip the tracking
+                // geofence (it's not a proximity target).
+                cancelProximityNotificationsForExit(context, triggeringGeofences)
+
                 if (location != null) {
                     // Re-register the tracking geofence at the new position to keep the chain going
                     if (isTrackingGeofence) {
@@ -112,6 +141,53 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 }
             }
             else -> pendingResult.finish()
+        }
+    }
+
+    /**
+     * Cancel any in-tray proximity notifications for fences the user just
+     * exited. Reads the targetKind/targetId from the cached metadata in
+     * `GeofenceManager`'s SharedPreferences and rebuilds the notification ID
+     * the renderer used. Falls back to a silent no-op for fences without
+     * metadata (e.g. legacy geofences without `targetId` from a server build
+     * predating #845, or the tracking geofence itself).
+     */
+    private fun cancelProximityNotificationsForExit(
+        context: Context,
+        exitedFences: List<com.google.android.gms.location.Geofence>
+    ) {
+        val proximityFences = exitedFences.filter { it.requestId != GeofenceManager.TRACKING_GEOFENCE_ID }
+        if (proximityFences.isEmpty()) return
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val metadataJson = prefs.getString(GEOFENCE_METADATA_KEY, null) ?: run {
+            Log.d(TAG, "No geofence metadata cached, skipping EXIT cancel for ${proximityFences.size} fence(s)")
+            return
+        }
+
+        val metadata = try {
+            JSONObject(metadataJson)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse cached geofence metadata", e)
+            return
+        }
+
+        val notifManager = NotificationManagerCompat.from(context)
+        for (fence in proximityFences) {
+            val entry = metadata.optJSONObject(fence.requestId) ?: continue
+            val targetKind = entry.optString("targetKind", "")
+            val targetId = entry.optString("targetId", "")
+            if (targetKind.isBlank() || targetId.isBlank()) {
+                Log.d(TAG, "Geofence ${fence.requestId} has no targetKind/targetId; skip cancel")
+                continue
+            }
+            val notificationId = proximityNotificationId(targetKind, targetId)
+            try {
+                notifManager.cancel(notificationId)
+                Log.d(TAG, "Cancelled in-tray proximity notification id=$notificationId for $targetKind/$targetId")
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Missing notification permission for cancel id=$notificationId", e)
+            }
         }
     }
 
