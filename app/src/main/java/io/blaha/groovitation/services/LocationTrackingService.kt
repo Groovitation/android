@@ -22,6 +22,21 @@ internal data class ResolvedLocationAuth(
 )
 
 /**
+ * Paired auth + diagnostic so a caller emitting an `outcome=SKIPPED_NO_AUTH`
+ * line doesn't have to re-derive the underlying source state with a second
+ * round of SharedPreferences + WebView reads (and risk those reads
+ * disagreeing with the resolver's null verdict). [auth] is null exactly when
+ * [LocationTrackingService.resolveLocationAuth] would have returned null;
+ * [diagnosticExtras] is the formatted "webViewCookies=... storedToken=...
+ * storedSession=..." string suitable for splicing into the outcome log
+ * line via `LocationWorker.emitOutcome` extras (#772).
+ */
+internal data class LocationAuthLookup(
+    val auth: ResolvedLocationAuth?,
+    val diagnosticExtras: String
+)
+
+/**
  * Transition shim for upgrading from foreground service to geofence-based tracking.
  *
  * On ACTION_START: enqueues WorkManager periodic task and stops self (no foreground service).
@@ -114,25 +129,71 @@ class LocationTrackingService : Service() {
         }
 
         internal fun resolveLocationAuth(context: Context, callerTag: String): ResolvedLocationAuth? {
+            return resolveLocationAuthWithDiagnostic(context, callerTag).auth
+        }
+
+        /**
+         * Same source resolution as [resolveLocationAuth] but also returns a
+         * formatted diagnostic suitable for splicing into the
+         * `outcome=SKIPPED_NO_AUTH` log line in [LocationWorker]. Reading
+         * SharedPreferences + WebView cookies once and pairing the result
+         * keeps the diagnostic guaranteed-consistent with the resolver's
+         * null verdict (#772).
+         */
+        internal fun resolveLocationAuthWithDiagnostic(
+            context: Context,
+            callerTag: String
+        ): LocationAuthLookup {
             val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val webViewCookie = currentWebViewCookie(callerTag)
-            val storedSessionCookie = extractSessionCookie(
-                prefs.getString(KEY_SESSION_COOKIE, null)
-            )
+            val storedSessionCookie = prefs.getString(KEY_SESSION_COOKIE, null)
             val storedLocationToken = prefs.getString(KEY_LOCATION_TOKEN, null)
 
             val resolved = resolveLocationAuthFromSources(
                 storedLocationToken = storedLocationToken,
                 webViewCookie = webViewCookie,
+                storedSessionCookie = extractSessionCookie(storedSessionCookie)
+            )
+            val diagnostic = buildLocationAuthDiagnostic(
+                webViewCookie = webViewCookie,
+                storedLocationToken = storedLocationToken,
                 storedSessionCookie = storedSessionCookie
             )
             if (resolved == null) {
-                Log.w(
-                    callerTag,
-                    "No location auth available. webViewCookies=${describeCookieNames(webViewCookie)}"
-                )
+                Log.w(callerTag, "No location auth available. $diagnostic")
             }
-            return resolved
+            return LocationAuthLookup(auth = resolved, diagnosticExtras = diagnostic)
+        }
+
+        /**
+         * Pure formatter: returns
+         * `webViewCookies=[name1, name2] storedToken=present storedSession=absent`
+         * for the structured log line. Cookie *names* only — values are never
+         * included so the line stays safe to ship to logcat.
+         *
+         * `storedToken=present` iff the stored location token is non-blank.
+         * `storedSession=present` iff the stored session cookie value parses
+         * as the auth cookie (matches [resolveLocationAuthFromSources]
+         * semantics, so the diagnostic doesn't disagree with the resolver's
+         * null verdict).
+         */
+        internal fun buildLocationAuthDiagnostic(
+            webViewCookie: String?,
+            storedLocationToken: String?,
+            storedSessionCookie: String?
+        ): String {
+            val tokenState = if (storedLocationToken?.trim()?.isNotEmpty() == true) {
+                "present"
+            } else {
+                "absent"
+            }
+            val sessionState = if (extractSessionCookie(storedSessionCookie) != null) {
+                "present"
+            } else {
+                "absent"
+            }
+            return "webViewCookies=${describeCookieNames(webViewCookie)} " +
+                "storedToken=$tokenState storedSession=$sessionState"
         }
 
         internal fun resolveSessionCookie(context: Context, callerTag: String): ResolvedSessionCookie? {
