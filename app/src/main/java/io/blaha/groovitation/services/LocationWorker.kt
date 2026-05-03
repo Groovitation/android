@@ -410,9 +410,12 @@ class LocationWorker(
         personUuid: String,
         json: JSONObject
     ) = withContext(Dispatchers.IO) {
-        val resolvedAuth = LocationTrackingService.resolveLocationAuth(applicationContext, TAG)
+        val authLookup = LocationTrackingService.resolveLocationAuthWithDiagnostic(
+            applicationContext, TAG
+        )
+        val resolvedAuth = authLookup.auth
             ?: run {
-                emitOutcome(Outcome.SKIPPED_NO_AUTH)
+                emitOutcome(Outcome.SKIPPED_NO_AUTH, authLookup.diagnosticExtras)
                 return@withContext
             }
 
