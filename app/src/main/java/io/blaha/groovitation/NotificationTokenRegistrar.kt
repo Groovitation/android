@@ -38,7 +38,16 @@ object NotificationTokenRegistrar {
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
-                response.isSuccessful
+                if (response.isSuccessful) {
+                    true
+                } else {
+                    val bodyPreview = response.body?.let { response.peekBody(512).string() }.orEmpty()
+                    Log.w(
+                        TAG,
+                        "Token registration failed: HTTP ${response.code} ${response.message} body=$bodyPreview"
+                    )
+                    false
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error registering notification token", e)
