@@ -218,7 +218,6 @@ class MainActivity : HotwireActivity() {
 
     // Session-level flag to avoid re-prompting background permission if already asked this session
     private var backgroundPermissionPromptedThisSession = false
-    private var fcmTokenRegistered = false
     private val httpClient = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO)
     private var activeWebFragment: GroovitationWebFragment? = null
@@ -462,6 +461,7 @@ class MainActivity : HotwireActivity() {
         tryStartBackgroundTracking()
         requestNativeForegroundLocation()
         checkForAppUpdate()
+        registerFcmTokenWithServer()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -1419,8 +1419,8 @@ class MainActivity : HotwireActivity() {
      * Requires: authenticated session (cookie) and FCM token available.
      */
     private fun registerFcmTokenWithServer() {
-        if (fcmTokenRegistered) return
         val token = TokenStorage.fcmToken ?: return
+        if (!FcmTokenStateStore.shouldRegister(applicationContext, token)) return
 
         val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
         if (cookie.isNullOrEmpty()) {
@@ -1428,7 +1428,6 @@ class MainActivity : HotwireActivity() {
             return
         }
 
-        fcmTokenRegistered = true
         val registrationUrl = "${BuildConfig.BASE_URL}/api/notifications/tokens"
         scope.launch {
             val success = NotificationTokenRegistrar.register(
@@ -1439,10 +1438,10 @@ class MainActivity : HotwireActivity() {
                 cookie = cookie
             )
             if (success) {
+                FcmTokenStateStore.recordSuccess(applicationContext, token)
                 Log.d(TAG, "FCM token registered with server")
             } else {
-                Log.w(TAG, "FCM token registration failed")
-                fcmTokenRegistered = false
+                Log.w(TAG, "FCM token registration failed (will retry on next trigger)")
             }
         }
     }

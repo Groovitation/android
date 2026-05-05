@@ -64,9 +64,10 @@ class GroovitationMessagingService : FirebaseMessagingService() {
                     cookie = cookie
                 )
                 if (success) {
+                    FcmTokenStateStore.recordSuccess(context.applicationContext, token)
                     Log.d(TAG, "Refreshed FCM token registered with server")
                 } else {
-                    Log.w(TAG, "Token registration failed")
+                    Log.w(TAG, "Refreshed FCM token registration failed (will retry on next trigger)")
                 }
             }
         }
