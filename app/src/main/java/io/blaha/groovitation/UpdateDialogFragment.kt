@@ -45,7 +45,7 @@ class UpdateDialogFragment : DialogFragment() {
         val downloadUrl = arguments?.getString(ARG_DOWNLOAD_URL) ?: ""
 
         view.findViewById<TextView>(R.id.update_message).text =
-            "A new version of Groovitation is available.\n\nInstalled: v$currentVersion\nLatest: v$latestVersion"
+            "A new version of ${BuildConfig.APP_DISPLAY_NAME} is available.\n\nInstalled: v$currentVersion\nLatest: v$latestVersion"
 
         view.findViewById<MaterialButton>(R.id.btn_download).setOnClickListener {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)))

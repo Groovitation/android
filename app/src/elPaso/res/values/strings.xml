@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Chucopedia</string>
+    <string name="location_permission_rationale">Chucopedia needs your location to find nearby places and connect you with friends.</string>
+</resources>

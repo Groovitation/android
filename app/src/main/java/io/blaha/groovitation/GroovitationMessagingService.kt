@@ -29,7 +29,7 @@ class GroovitationMessagingService : FirebaseMessagingService() {
             channel: String
         ) {
             val push = IncomingPushNotification(
-                title = title.ifBlank { "Groovitation" },
+                title = title.ifBlank { BuildConfig.APP_DISPLAY_NAME },
                 body = body,
                 deepLink = deepLink,
                 channel = channel.ifBlank { GroovitationApplication.CHANNEL_DEFAULT }
@@ -129,7 +129,7 @@ class GroovitationMessagingService : FirebaseMessagingService() {
         val notification = message.notification
         val title = notification?.title
             ?: data[IncomingPushNotification.EXTRA_TITLE]
-            ?: "Groovitation"
+            ?: BuildConfig.APP_DISPLAY_NAME
         val body = notification?.body
             ?: data[IncomingPushNotification.EXTRA_BODY]
             ?: ""

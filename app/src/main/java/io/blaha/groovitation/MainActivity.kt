@@ -384,8 +384,8 @@ class MainActivity : HotwireActivity() {
     }
 
     private fun preCacheHttpAuth() {
-        val host = "groovitation.blaha.io"
-        val realm = "Restricted groovitation.blaha.io"
+        val host = BuildConfig.APP_LINK_HOST
+        val realm = "Restricted $host"
         @Suppress("DEPRECATION")
         android.webkit.WebViewDatabase.getInstance(this)
             .setHttpAuthUsernamePassword(host, realm, "groovitation", "aldoofra")
@@ -509,7 +509,7 @@ class MainActivity : HotwireActivity() {
                         val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?code=$code&redirect=$redirect&platform=android"
                         routeUrlWhenReady(authUrl)
                     }
-                } else if (uri.scheme == "https" && uri.host == "groovitation.blaha.io") {
+                } else if (uri.scheme == "https" && uri.host == BuildConfig.APP_LINK_HOST) {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
                     val oauthRedirectPath = if (path == "/oauth/native-authenticate") {
@@ -709,7 +709,7 @@ class MainActivity : HotwireActivity() {
         )
 
         val notification = NotificationCompat.Builder(this, GroovitationApplication.CHANNEL_DEFAULT)
-            .setContentTitle("Welcome to Groovitation!")
+            .setContentTitle("Welcome to ${BuildConfig.APP_DISPLAY_NAME}!")
             .setContentText("We'll let you know when we see an opportunity.")
             .setSmallIcon(R.drawable.ic_notification)
             .setAutoCancel(true)
@@ -1043,7 +1043,7 @@ class MainActivity : HotwireActivity() {
         AlertDialog.Builder(this)
             .setTitle("Background Location")
             .setMessage(
-                "Background location lets Groovitation find hangout spots near you and " +
+                "Background location lets ${BuildConfig.APP_DISPLAY_NAME} find hangout spots near you and " +
                 "your friends — even when the app isn't open.\n\n" +
                 "Without it, we can only look while you're using the app."
             )
@@ -1226,9 +1226,9 @@ class MainActivity : HotwireActivity() {
             .setTitle("One more step on Samsung")
             .setMessage(
                 "Samsung phones have a separate 'sleeping apps' setting that " +
-                "can stop Groovitation from finding hangout spots in the " +
+                "can stop ${BuildConfig.APP_DISPLAY_NAME} from finding hangout spots in the " +
                 "background — even with location permission granted.\n\n" +
-                "Tap 'Open Battery settings' and add Groovitation to " +
+                "Tap 'Open Battery settings' and add ${BuildConfig.APP_DISPLAY_NAME} to " +
                 "'Never sleeping apps' to keep proximity working when the " +
                 "app is closed."
             )

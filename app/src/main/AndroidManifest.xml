@@ -64,7 +64,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="groovitation.blaha.io" />
+                    android:host="${appLinkHost}" />
             </intent-filter>
 
             <!-- Custom URL scheme -->
@@ -72,7 +72,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="groovitation" />
+                <data android:scheme="${oauthCallbackScheme}" />
             </intent-filter>
         </activity>
 

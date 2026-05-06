@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Production: Only HTTPS to groovitation.blaha.io -->
+    <!-- Production: Only HTTPS to brand hosts -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">groovitation.blaha.io</domain>
+        <domain includeSubdomains="true">chucopedia.blaha.io</domain>
     </domain-config>
 
     <!-- Development: Allow localhost for testing -->

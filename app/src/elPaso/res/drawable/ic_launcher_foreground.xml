@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="27"
+        android:translateY="27"
+        android:scaleX="0.1055"
+        android:scaleY="0.1055">
+        <!-- Chucopedia C-path, matching the network-node Groovitation launcher mark. -->
+        <path
+            android:pathData="M394,122L331,86 M331,86L251,75 M251,75L176,102 M176,102L128,160 M128,160L103,236 M103,236L112,316 M112,316L153,384 M153,384L222,425 M222,425L305,430 M305,430L377,397"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="6"
+            android:strokeAlpha="0.5" />
+        <path
+            android:pathData="M188,206L128,160 M188,206L103,236 M188,206L251,75 M178,330L112,316 M178,330L153,384 M178,330L305,430 M334,145L394,122 M334,145L331,86 M334,145L377,397"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3"
+            android:strokeAlpha="0.2" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M394,122m-17,0a17,17 0,1 1,34 0a17,17 0,1 1,-34 0
+                M331,86m-19,0a19,19 0,1 1,38 0a19,19 0,1 1,-38 0
+                M251,75m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0
+                M176,102m-17,0a17,17 0,1 1,34 0a17,17 0,1 1,-34 0
+                M128,160m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0
+                M103,236m-17,0a17,17 0,1 1,34 0a17,17 0,1 1,-34 0
+                M112,316m-16,0a16,16 0,1 1,32 0a16,16 0,1 1,-32 0
+                M153,384m-17,0a17,17 0,1 1,34 0a17,17 0,1 1,-34 0
+                M222,425m-16,0a16,16 0,1 1,32 0a16,16 0,1 1,-32 0
+                M305,430m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0
+                M377,397m-17,0a17,17 0,1 1,34 0a17,17 0,1 1,-34 0" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M188,206m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0
+                M178,330m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0
+                M334,145m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0
+                M410,315m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0
+                M82,392m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0
+                M418,67m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0
+                M154,48m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0
+                M62,150m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    </group>
+</vector>

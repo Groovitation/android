@@ -31,7 +31,7 @@ data class IncomingPushNotification(
 
         fun fromRemoteMessage(message: RemoteMessage): IncomingPushNotification? {
             val notification = message.notification
-            val title = notification?.title ?: message.data[EXTRA_TITLE] ?: "Groovitation"
+            val title = notification?.title ?: message.data[EXTRA_TITLE] ?: BuildConfig.APP_DISPLAY_NAME
             val body = notification?.body ?: message.data[EXTRA_BODY] ?: ""
             val deepLink = normalizeDeepLink(message.data[EXTRA_URL])
             val channel = message.data[EXTRA_CHANNEL].orEmpty()
@@ -51,7 +51,7 @@ data class IncomingPushNotification(
 
         fun fromTestIntent(intent: Intent): IncomingPushNotification {
             return IncomingPushNotification(
-                title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Groovitation" },
+                title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { BuildConfig.APP_DISPLAY_NAME },
                 body = intent.getStringExtra(EXTRA_BODY).orEmpty(),
                 deepLink = normalizeDeepLink(intent.getStringExtra(EXTRA_URL)),
                 channel = intent.getStringExtra(EXTRA_CHANNEL).orEmpty()
