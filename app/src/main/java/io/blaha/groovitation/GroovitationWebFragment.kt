@@ -18,7 +18,7 @@ import io.blaha.groovitation.services.LocationTrackingService
 import org.json.JSONObject
 
 /**
- * Custom WebFragment that handles HTTP Basic Authentication for groovitation.blaha.io
+ * Custom WebFragment that handles HTTP Basic Authentication for the active brand host
  * and bridges personId from the web app to the native app for background tracking.
  */
 @HotwireDestinationDeepLink(uri = "hotwire://fragment/web")
@@ -356,7 +356,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
     ) {
         Log.d(TAG, "Received HTTP auth request for host: $host, realm: $realm")
 
-        if (host.contains("groovitation.blaha.io")) {
+        if (host == BuildConfig.APP_LINK_HOST) {
             Log.d(TAG, "Providing credentials for $host")
             handler.proceed(AUTH_USERNAME, AUTH_PASSWORD)
         } else {

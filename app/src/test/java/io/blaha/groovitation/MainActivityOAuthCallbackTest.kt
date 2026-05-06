@@ -67,7 +67,7 @@ class MainActivityOAuthCallbackTest {
     @Test
     fun httpsAppLinkOauthCallbackRoutesToNativeAuthenticateAndSelectsEventsTab() {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
-        val appLinkUrl = "https://groovitation.blaha.io/oauth/native-authenticate?code=abc-handoff-code&redirect=%2F&platform=android"
+        val appLinkUrl = "https://${BuildConfig.APP_LINK_HOST}/oauth/native-authenticate?code=abc-handoff-code&redirect=%2F&platform=android"
 
         activity.handleIntentForTest(
             Intent(

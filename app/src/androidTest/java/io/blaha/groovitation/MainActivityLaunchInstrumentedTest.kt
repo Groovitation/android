@@ -21,11 +21,11 @@ class MainActivityLaunchInstrumentedTest {
                 assertEquals(
                     "Emulator lane must run the local flavor APK, not prod",
                     "local",
-                    BuildConfig.FLAVOR
+                    BuildConfig.SERVER_ID
                 )
                 assertTrue(
                     "Fixture-backed emulator lane must not point at the production site",
-                    BuildConfig.BASE_URL != "https://groovitation.blaha.io"
+                    BuildConfig.BASE_URL != "https://${BuildConfig.APP_LINK_HOST}"
                 )
                 assertTrue(
                     "Bottom navigation item count must stay <= 5 to avoid runtime inflation crashes",

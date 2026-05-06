@@ -406,18 +406,19 @@ class FixtureHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if path == "/android/version.json":
+        if path in ("/android/version.json", "/android/groovitation-version.json", "/android/chucopedia-version.json"):
+            apk_name = "chucopedia.apk" if path == "/android/chucopedia-version.json" else "groovitation.apk"
             body = json.dumps(
                 {
                     "latest_version_name": "0.0.0",
                     "latest_version_code": 0,
-                    "download_url": f"http://10.0.2.2:{self.fixture_port}/android/groovitation.apk",
+                    "download_url": f"http://10.0.2.2:{self.fixture_port}/android/{apk_name}",
                 }
             ).encode("utf-8")
             self.send_bytes(HTTPStatus.OK, body, content_type="application/json")
             return
 
-        if path == "/android/groovitation.apk":
+        if path in ("/android/groovitation.apk", "/android/chucopedia.apk"):
             self.send_bytes(
                 HTTPStatus.OK,
                 b"fixture-apk-placeholder",

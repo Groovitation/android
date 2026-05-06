@@ -25,7 +25,47 @@ default:
         local out_file="app/google-services.json"
         mkdir -p app
         write_stub_google_services_json() {
-          printf '%s\n' '{"project_info":{"project_number":"1234567890","project_id":"groovitation-ci","storage_bucket":"groovitation-ci.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:ci-placeholder","android_client_info":{"package_name":"io.blaha.groovitation"}},"oauth_client":[],"api_key":[{"current_key":"ci-placeholder-key"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}' > "${out_file}"
+          cat > "${out_file}" <<'JSON'
+      {"project_info":{"project_number":"1234567890","project_id":"groovitation-ci","storage_bucket":"groovitation-ci.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:ci-placeholder-groovitation","android_client_info":{"package_name":"io.blaha.groovitation"}},"oauth_client":[],"api_key":[{"current_key":"ci-placeholder-key"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}},{"client_info":{"mobilesdk_app_id":"1:1234567890:android:ci-placeholder-chucopedia","android_client_info":{"package_name":"io.blaha.groovitation.chucopedia"}},"oauth_client":[],"api_key":[{"current_key":"ci-placeholder-key"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}
+      JSON
+        }
+        ensure_google_services_clients() {
+          local out_file="app/google-services.json"
+          python3 - "$out_file" <<'PY'
+      import copy
+      import json
+      import sys
+
+      path = sys.argv[1]
+      required = ["io.blaha.groovitation", "io.blaha.groovitation.chucopedia"]
+      with open(path, "r", encoding="utf-8") as fh:
+          data = json.load(fh)
+      clients = data.setdefault("client", [])
+      existing = {
+          client.get("client_info", {}).get("android_client_info", {}).get("package_name")
+          for client in clients
+      }
+      template = copy.deepcopy(clients[0]) if clients else {
+          "client_info": {
+              "mobilesdk_app_id": "1:1234567890:android:ci-placeholder",
+              "android_client_info": {},
+          },
+          "oauth_client": [],
+          "api_key": [{"current_key": "ci-placeholder-key"}],
+          "services": {"appinvite_service": {"other_platform_oauth_client": []}},
+      }
+      for package_name in required:
+          if package_name in existing:
+              continue
+          clone = copy.deepcopy(template)
+          clone.setdefault("client_info", {}).setdefault("android_client_info", {})["package_name"] = package_name
+          clone["client_info"]["mobilesdk_app_id"] = f"1:1234567890:android:ci-placeholder-{package_name.rsplit('.', 1)[-1]}"
+          clients.append(clone)
+          print(f"WARN: Added placeholder google-services client for {package_name}")
+      with open(path, "w", encoding="utf-8") as fh:
+          json.dump(data, fh, separators=(",", ":"))
+          fh.write("\n")
+      PY
         }
 
         if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
@@ -62,6 +102,7 @@ default:
         echo "Set GOOGLE_SERVICES_JSON_B64 to a base64-encoded JSON payload to avoid formatting issues."
         exit 1
       fi
+      ensure_google_services_clients
     - export ANDROID_HOME="/home/ben/Android/Sdk"
     - export ANDROID_AVD_HOME="/home/ben/.android/avd"
     - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
@@ -71,36 +112,42 @@ build:
   <<: *android_setup
   stage: build
   script:
-    - 'echo "Build contract: prodDebug APK targets https://groovitation.blaha.io"'
-    - 'echo "Build contract: localDebug APK targets fixture backend ${ANDROID_FIXTURE_BASE_URL}"'
-    - ./gradlew assembleProdDebug assembleLocalDebug --no-daemon -PgroovitationLocalBaseUrl="${ANDROID_FIXTURE_BASE_URL}"
+    - 'echo "Build contract: Groovitation prod APK targets https://groovitation.blaha.io"'
+    - 'echo "Build contract: Chucopedia prod APK targets https://chucopedia.blaha.io"'
+    - 'echo "Build contract: local APKs target fixture backend ${ANDROID_FIXTURE_BASE_URL}"'
+    - ./gradlew assembleGroovitationProdDebug assembleElPasoProdDebug assembleGroovitationLocalDebug assembleElPasoLocalDebug --no-daemon -PgroovitationLocalBaseUrl="${ANDROID_FIXTURE_BASE_URL}"
   artifacts:
     paths:
-      - app/build/outputs/apk/prod/debug/app-prod-debug.apk
-      - app/build/outputs/apk/local/debug/app-local-debug.apk
+      - app/build/outputs/apk/groovitationProd/debug/*.apk
+      - app/build/outputs/apk/elPasoProd/debug/*.apk
+      - app/build/outputs/apk/groovitationLocal/debug/*.apk
+      - app/build/outputs/apk/elPasoLocal/debug/*.apk
     expire_in: 1 week
 
 test:
   <<: *android_setup
   stage: test
   script:
-    - 'echo "Unit test contract: prodDebug coverage plus localDebug fixture lane coverage"'
+    - 'echo "Unit test contract: both brand flavors across prod and local fixture lanes"'
     - 'echo "Fixture backend under test: ${ANDROID_FIXTURE_BASE_URL}"'
-    - ./gradlew testProdDebugUnitTest testLocalDebugUnitTest --no-daemon -PgroovitationLocalBaseUrl="${ANDROID_FIXTURE_BASE_URL}"
+    - ./gradlew testGroovitationProdDebugUnitTest testElPasoProdDebugUnitTest testGroovitationLocalDebugUnitTest testElPasoLocalDebugUnitTest --no-daemon -PgroovitationLocalBaseUrl="${ANDROID_FIXTURE_BASE_URL}"
   artifacts:
     reports:
       junit:
-        - app/build/test-results/testProdDebugUnitTest/*.xml
-        - app/build/test-results/testLocalDebugUnitTest/*.xml
+        - app/build/test-results/testGroovitationProdDebugUnitTest/*.xml
+        - app/build/test-results/testElPasoProdDebugUnitTest/*.xml
+        - app/build/test-results/testGroovitationLocalDebugUnitTest/*.xml
+        - app/build/test-results/testElPasoLocalDebugUnitTest/*.xml
 
 lint:
   <<: *android_setup
   stage: test
   script:
-    - ./gradlew lintProdDebug --no-daemon
+    - ./gradlew lintGroovitationProdDebug lintElPasoProdDebug --no-daemon
   artifacts:
     paths:
-      - app/build/reports/lint-results-prodDebug.html
+      - app/build/reports/lint-results-groovitationProdDebug.html
+      - app/build/reports/lint-results-elPasoProdDebug.html
     expire_in: 1 week
   allow_failure: true
 
@@ -137,8 +184,8 @@ emulator-smoke-test:
   # A pipeline-held emulator slot is pre-claimed by emulator-slot-claim so
   # this wall clock is spent on emulator boot + tests, not queue wait.
   script:
-    - 'echo "Native emulator lane: localDebug fixture-backed checks"'
-    - 'echo "APK under test: localDebug"'
+    - 'echo "Native emulator lane: Groovitation localDebug fixture-backed checks plus Chucopedia side-by-side install smoke"'
+    - 'echo "APK under test: groovitationLocalDebug; side-by-side install target: elPasoLocalDebug"'
     - 'echo "Backend under test: dynamic fixture URL passed via groovitationLocalBaseUrl"'
     - 'echo "Production-only smoke remains in root/groovitation post-deploy smoke-test-android."'
     # Ensure emulator child processes are killed on cancel/timeout
@@ -233,7 +280,7 @@ emulator-smoke-test:
     - adb -s "${ANDROID_SERIAL}" shell settings put global animator_duration_scale 0
     - |
       # Aggressively remove any pre-existing APK to avoid INSTALL_FAILED_UPDATE_INCOMPATIBLE
-      for pkg in io.blaha.groovitation io.blaha.groovitation.test; do
+      for pkg in io.blaha.groovitation io.blaha.groovitation.test io.blaha.groovitation.chucopedia io.blaha.groovitation.chucopedia.test; do
         adb -s "${ANDROID_SERIAL}" uninstall "$pkg" 2>/dev/null || true
         adb -s "${ANDROID_SERIAL}" shell pm uninstall --user 0 "$pkg" 2>/dev/null || true
         adb -s "${ANDROID_SERIAL}" shell pm uninstall "$pkg" 2>/dev/null || true
@@ -258,7 +305,23 @@ emulator-smoke-test:
       done
       curl -sf "http://127.0.0.1:${FIXTURE_PORT}/healthz" >/dev/null
       echo "Fixture backend under test: http://10.0.2.2:${FIXTURE_PORT}"
-    - ./gradlew connectedLocalDebugAndroidTest --no-daemon -PgroovitationLocalBaseUrl="http://10.0.2.2:${FIXTURE_PORT}" -Pandroid.testInstrumentationRunnerArguments.notClass=io.blaha.groovitation.MainActivityWebStylingInstrumentedTest
+    - ./gradlew connectedGroovitationLocalDebugAndroidTest assembleElPasoLocalDebug --no-daemon -PgroovitationLocalBaseUrl="http://10.0.2.2:${FIXTURE_PORT}" -Pandroid.testInstrumentationRunnerArguments.notClass=io.blaha.groovitation.MainActivityWebStylingInstrumentedTest
+    - |
+      GROOVITATION_APK="$(find app/build/outputs/apk/groovitationLocal/debug -name '*.apk' | head -n 1)"
+      EL_PASO_APK="$(find app/build/outputs/apk/elPasoLocal/debug -name '*.apk' | head -n 1)"
+      if [ -z "${GROOVITATION_APK}" ]; then
+        echo "ERROR: groovitationLocalDebug APK not found"
+        exit 1
+      fi
+      if [ -z "${EL_PASO_APK}" ]; then
+        echo "ERROR: elPasoLocalDebug APK not found"
+        exit 1
+      fi
+      adb -s "${ANDROID_SERIAL}" install -r "${GROOVITATION_APK}"
+      adb -s "${ANDROID_SERIAL}" install -r "${EL_PASO_APK}"
+      adb -s "${ANDROID_SERIAL}" shell pm list packages | grep -q '^package:io.blaha.groovitation$'
+      adb -s "${ANDROID_SERIAL}" shell pm list packages | grep -q '^package:io.blaha.groovitation.chucopedia$'
+      echo "Verified Groovitation and Chucopedia APKs install side by side on emulator"
     - |
       timeout 10s adb -s "${ANDROID_SERIAL}" emu kill || true
       if [ -f "/tmp/emulator-${EMU_PORT}.pid" ]; then kill "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true; fi
@@ -381,10 +444,10 @@ firebase-test-lab-nightly:
       # ── Build the test APK alongside the app APK from `build`. The job
       #    already produced the prod-debug app APK as an artefact; FTL's
       #    instrumentation lane needs the matching androidTest APK too.
-      ./gradlew assembleProdDebugAndroidTest --no-daemon
+      ./gradlew assembleGroovitationProdDebugAndroidTest --no-daemon
     - |
-      APP_APK="app/build/outputs/apk/prod/debug/app-prod-debug.apk"
-      TEST_APK="app/build/outputs/apk/androidTest/prod/debug/app-prod-debug-androidTest.apk"
+      APP_APK="$(find app/build/outputs/apk/groovitationProd/debug -name '*.apk' | head -n 1)"
+      TEST_APK="$(find app/build/outputs/apk/androidTest/groovitationProd/debug -name '*.apk' | head -n 1)"
       if [ ! -f "${APP_APK}" ]; then
         echo "ERROR: app APK missing at ${APP_APK}"
         exit 1
@@ -416,8 +479,8 @@ firebase-test-lab-nightly:
       #    layer that the build is sound on real hardware.
       RUN_ID_INST="nightly-$(date +%Y%m%d-%H%M%S)"
       INST_RESULTS_DIR="${FTL_RESULTS_DIR_PREFIX}/${RUN_ID_INST}/instrumentation"
-      APP_APK="app/build/outputs/apk/prod/debug/app-prod-debug.apk"
-      TEST_APK="app/build/outputs/apk/androidTest/prod/debug/app-prod-debug-androidTest.apk"
+      APP_APK="$(find app/build/outputs/apk/groovitationProd/debug -name '*.apk' | head -n 1)"
+      TEST_APK="$(find app/build/outputs/apk/androidTest/groovitationProd/debug -name '*.apk' | head -n 1)"
       echo "Submitting instrumentation suite to FTL..."
       gcloud firebase test android run \
         --type instrumentation \
@@ -454,13 +517,32 @@ deploy:
     - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
-      VERSION_ENV_PATH=version.env ./scripts/generate-version-json.sh version.json
+      GROOVITATION_APK="$(find app/build/outputs/apk/groovitationProd/debug -name '*.apk' | head -n 1)"
+      CHUCOPEDIA_APK="$(find app/build/outputs/apk/elPasoProd/debug -name '*.apk' | head -n 1)"
+      if [ ! -f "${GROOVITATION_APK}" ]; then
+        echo "ERROR: Groovitation prod APK missing"
+        exit 1
+      fi
+      if [ ! -f "${CHUCOPEDIA_APK}" ]; then
+        echo "ERROR: Chucopedia prod APK missing"
+        exit 1
+      fi
+      VERSION_ENV_PATH=groovitation-version.env BRAND=groovitation BASE_URL=https://groovitation.blaha.io APK_BASENAME=groovitation ./scripts/generate-version-json.sh groovitation-version.json
       set -a
-      source version.env
+      source groovitation-version.env
       set +a
-      cp app/build/outputs/apk/prod/debug/app-prod-debug.apk "${APK_NAME}"
-      cp app/build/outputs/apk/prod/debug/app-prod-debug.apk groovitation.apk
-      rsync -avz "${APK_NAME}" groovitation.apk version.json ben@${DEPLOY_HOST}:/media/nvme/docker_volumes/groovitation-android/
+      cp "${GROOVITATION_APK}" "${APK_NAME}"
+      cp "${GROOVITATION_APK}" groovitation.apk
+      cp groovitation-version.json version.json
+
+      VERSION_ENV_PATH=chucopedia-version.env BRAND=elPaso BASE_URL=https://chucopedia.blaha.io APK_BASENAME=chucopedia ./scripts/generate-version-json.sh chucopedia-version.json
+      set -a
+      source chucopedia-version.env
+      set +a
+      cp "${CHUCOPEDIA_APK}" "${APK_NAME}"
+      cp "${CHUCOPEDIA_APK}" chucopedia.apk
+
+      rsync -avz groovitation-*.apk chucopedia-*.apk groovitation.apk chucopedia.apk version.json groovitation-version.json chucopedia-version.json ben@${DEPLOY_HOST}:/media/nvme/docker_volumes/groovitation-android/
   only:
     - main
   environment:

@@ -14,24 +14,25 @@ Native Android wrapper for Groovitation using Hotwire Native.
 
 1. Go to [Firebase Console](https://console.firebase.google.com/)
 2. Create a new project or use existing one
-3. Add an Android app with package name: `io.blaha.groovitation`
+3. Add Android apps with package names: `io.blaha.groovitation` and `io.blaha.groovitation.chucopedia`
 4. Download `google-services.json` and place it in `app/` directory
 5. Enable Cloud Messaging in Firebase Console
 
 ### Building
 
 ```bash
-# Production APK
-./gradlew assembleProdDebug
+# Production APKs
+./gradlew assembleGroovitationProdDebug assembleElPasoProdDebug
 
-# Fixture/local APK (default backend: http://10.0.2.2:3000)
-./gradlew assembleLocalDebug
+# Fixture/local APKs (default backend: http://10.0.2.2:3000)
+./gradlew assembleGroovitationLocalDebug assembleElPasoLocalDebug
 
-# Fixture/local APK with an explicit backend override
-./gradlew assembleLocalDebug -PgroovitationLocalBaseUrl=http://10.0.2.2:4010
+# Fixture/local APKs with an explicit backend override
+./gradlew assembleGroovitationLocalDebug assembleElPasoLocalDebug -PgroovitationLocalBaseUrl=http://10.0.2.2:4010
 
 # Install on connected device
-./gradlew installLocalDebug
+./gradlew installGroovitationLocalDebug
+./gradlew installElPasoLocalDebug
 ```
 
 ### Project Structure
@@ -100,26 +101,27 @@ window.HotwireNative.postMessage('share', 'share', {
 ## Configuration
 
 ### Base URL
-The app ships two server flavors:
+The app ships two brand flavors and two server flavors:
 
 ```kotlin
-prod  -> https://groovitation.blaha.io
-local -> http://10.0.2.2:3000
+groovitation + prod  -> https://groovitation.blaha.io
+elPaso       + prod  -> https://chucopedia.blaha.io
+*            + local -> http://10.0.2.2:3000
 ```
 
 The local flavor can be redirected at build time without editing the repo:
 
 ```bash
-./gradlew assembleLocalDebug -PgroovitationLocalBaseUrl=http://10.0.2.2:4010
-GROOVITATION_LOCAL_BASE_URL=http://10.0.2.2:4010 ./gradlew assembleLocalDebug
+./gradlew assembleGroovitationLocalDebug -PgroovitationLocalBaseUrl=http://10.0.2.2:4010
+GROOVITATION_LOCAL_BASE_URL=http://10.0.2.2:4010 ./gradlew assembleElPasoLocalDebug
 ```
 
 `groovitationLocalBaseUrl` takes precedence over `GROOVITATION_LOCAL_BASE_URL`. Both are normalized to avoid a trailing slash.
 
-Production remains fixed:
-```kotlin
-buildConfigField("String", "BASE_URL", "\"https://groovitation.blaha.io\"")
-```
+Production remains fixed per brand through generated `BuildConfig.BASE_URL`.
+
+### Brand Versions
+Per-brand Android versions live in `app/brand-versions.properties`. Every Android push must bump the affected brand version values; Groovitation and Chucopedia are independent installable apps.
 
 ### User Agent
 The app adds a custom user agent suffix for server-side detection:
@@ -131,13 +133,13 @@ buildConfigField("String", "USER_AGENT_EXTENSION", "\"Groovitation Android/1.0\"
 
 ```bash
 # Run unit tests
-./gradlew testProdDebugUnitTest testLocalDebugUnitTest
+./gradlew testGroovitationProdDebugUnitTest testElPasoProdDebugUnitTest testGroovitationLocalDebugUnitTest testElPasoLocalDebugUnitTest
 
 # Run the fixture-backed emulator lane
-./gradlew connectedLocalDebugAndroidTest -PgroovitationLocalBaseUrl=http://10.0.2.2:3000
+./gradlew connectedGroovitationLocalDebugAndroidTest -PgroovitationLocalBaseUrl=http://10.0.2.2:3000
 ```
 
-CI builds both `prodDebug` and `localDebug`, runs JVM tests for both flavors, and boots a headless emulator for the fixture-backed `connectedLocalDebugAndroidTest` lane.
+CI builds both brand flavors across `prod` and `local`, runs JVM tests for all four debug variants, and boots a headless emulator for the fixture-backed Groovitation local lane plus a Chucopedia side-by-side install smoke.
 Production-only smoke stays in the core repo's post-deploy `smoke-test-android` job.
 
 ## Release

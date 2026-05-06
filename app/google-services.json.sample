@@ -7,9 +7,28 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:YOUR_PROJECT_NUMBER:android:YOUR_APP_ID",
+        "mobilesdk_app_id": "1:YOUR_PROJECT_NUMBER:android:YOUR_GROOVITATION_APP_ID",
         "android_client_info": {
           "package_name": "io.blaha.groovitation"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "YOUR_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:YOUR_PROJECT_NUMBER:android:YOUR_CHUCOPEDIA_APP_ID",
+        "android_client_info": {
+          "package_name": "io.blaha.groovitation.chucopedia"
         }
       },
       "oauth_client": [],

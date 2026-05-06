@@ -16,7 +16,7 @@ data class UpdateInfo(
 
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
-    private const val VERSION_URL = "${BuildConfig.BASE_URL}/android/version.json"
+    private const val VERSION_URL = BuildConfig.VERSION_CHECK_URL
 
     suspend fun checkForUpdate(): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
