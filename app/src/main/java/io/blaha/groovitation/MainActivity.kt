@@ -82,6 +82,10 @@ class MainActivity : HotwireActivity() {
             "io.blaha.groovitation.extra.DISABLE_STARTUP_PERMISSION_CHAIN"
         internal const val EXTRA_SKIP_LOCATION_PERMISSION_CHAIN =
             "io.blaha.groovitation.extra.SKIP_LOCATION_PERMISSION_CHAIN"
+        private val PRODUCT_BRAND_HOSTS = setOf(
+            "groovitation.blaha.io",
+            "chucopedia.blaha.io"
+        )
 
         /**
          * Decides whether `promptBackgroundLocationPermission` should proceed
@@ -211,6 +215,10 @@ class MainActivity : HotwireActivity() {
             if (lastReplayElapsedMs <= 0L) return true
             val elapsedSinceLastReplay = nowElapsedMs - lastReplayElapsedMs
             return elapsedSinceLastReplay >= NATIVE_LOCATION_AUTH_REFRESH_DEBOUNCE_MS
+        }
+
+        internal fun isProductBrandHost(host: String?): Boolean {
+            return host?.lowercase() in PRODUCT_BRAND_HOSTS
         }
     }
 
@@ -509,7 +517,7 @@ class MainActivity : HotwireActivity() {
                         val authUrl = "${BuildConfig.BASE_URL}/oauth/native-authenticate?code=$code&redirect=$redirect&platform=android"
                         routeUrlWhenReady(authUrl)
                     }
-                } else if (uri.scheme == "https" && uri.host == BuildConfig.APP_LINK_HOST) {
+                } else if (uri.scheme == "https" && isProductBrandHost(uri.host)) {
                     val path = uri.path ?: "/"
                     Log.d(TAG, "Deep link path: $path")
                     val oauthRedirectPath = if (path == "/oauth/native-authenticate") {
@@ -549,7 +557,11 @@ class MainActivity : HotwireActivity() {
     }
 
     private fun updateBottomNavForUrl(url: String) {
-        val path = url.removePrefix(BuildConfig.BASE_URL)
+        val path = runCatching { Uri.parse(url) }.getOrNull()
+            ?.takeIf { it.scheme == "http" || it.scheme == "https" }
+            ?.path
+            ?.takeIf { it.isNotBlank() }
+            ?: url.removePrefix(BuildConfig.BASE_URL)
         updateBottomNavForPath(path)
     }
 

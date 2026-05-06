@@ -82,4 +82,41 @@ class MainActivityOAuthCallbackTest {
         )
         assertEquals(R.id.nav_home, activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottom_navigation).selectedItemId)
     }
+
+    @Test
+    fun httpsAppLinkForOtherBrandRoutesToRequestedHost() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val otherBrandHost = if (BuildConfig.APP_LINK_HOST == "groovitation.blaha.io") {
+            "chucopedia.blaha.io"
+        } else {
+            "groovitation.blaha.io"
+        }
+        val crossBrandUrl = "https://$otherBrandHost/events/abc?source=android-test"
+
+        activity.handleIntentForTest(
+            Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse(crossBrandUrl)
+            )
+        )
+
+        assertEquals(
+            crossBrandUrl,
+            activity.lastRoutedUrlForTest()
+        )
+    }
+
+    @Test
+    fun httpsAppLinkForUnknownHostIsIgnored() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+
+        activity.handleIntentForTest(
+            Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("https://example.org/events/abc")
+            )
+        )
+
+        assertNull(activity.lastRoutedUrlForTest())
+    }
 }
