@@ -11,6 +11,16 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
+    <!--
+        Slice E (#1043): runtime activity recognition. Lets the app stamp the
+        location-ping payload with the user's coarse activity (in_vehicle /
+        on_foot / still / etc.) so the slice-D en-route trigger can use it as
+        an additional confidence gate on top of speed + bearing variance.
+        Runtime / dangerous on API 29+, optional, and silently omitted from
+        the payload when denied.
+    -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+
     <!-- Push notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -104,6 +114,15 @@
         <!-- Geofence transition receiver -->
         <receiver
             android:name=".services.GeofenceBroadcastReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Slice E (#1043): activity-transition receiver. ActivityRecognitionClient
+             delivers updates here when the user enters/exits in_vehicle / on_foot /
+             still / etc., and the receiver caches the latest classification for
+             LocationWorker.buildLocationPayload to stamp on the next ping. -->
+        <receiver
+            android:name=".services.ActivityRecognitionReceiver"
             android:enabled="true"
             android:exported="false" />
 

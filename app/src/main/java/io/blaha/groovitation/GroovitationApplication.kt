@@ -14,6 +14,7 @@ import io.blaha.groovitation.components.BiometricComponent
 import io.blaha.groovitation.components.LocationComponent
 import io.blaha.groovitation.components.NotificationTokenComponent
 import io.blaha.groovitation.components.ShareComponent
+import io.blaha.groovitation.services.ActivityRecognitionTracker
 import io.blaha.groovitation.services.LocationWorker
 
 class GroovitationApplication : Application() {
@@ -45,6 +46,20 @@ class GroovitationApplication : Application() {
                 "GroovitationApplication",
                 "WorkManager not initialized at Application.onCreate; skipping " +
                     "periodic re-enqueue (will retry on next MainActivity.onResume)",
+                e
+            )
+        }
+        // Slice E (#1043): subscribe to ActivityRecognitionClient transitions
+        // so the next location ping carries an `activity` field. No-op when
+        // ACTIVITY_RECOGNITION is denied (the tracker checks before calling
+        // Play Services). Failures are non-fatal: app startup must not break
+        // if Play Services is missing on a degraded device.
+        try {
+            ActivityRecognitionTracker.registerTransitions(this)
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "GroovitationApplication",
+                "ActivityRecognition registration failed; payloads will omit `activity`",
                 e
             )
         }

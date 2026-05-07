@@ -114,7 +114,8 @@ class LocationWorker(
             accuracy: Double,
             altitude: Double?,
             deviceId: String,
-            timestamp: Long
+            timestamp: Long,
+            activity: String? = null
         ): JSONObject = JSONObject().apply {
             put("latitude", latitude)
             put("longitude", longitude)
@@ -123,6 +124,12 @@ class LocationWorker(
             put("deviceType", "android")
             put("source", "background-gps")
             put("deviceId", deviceId)
+            // Slice E (#1043): coarse activity classification from
+            // ActivityRecognitionClient if recently observed and the user
+            // granted ACTIVITY_RECOGNITION. Omitted (not null-emitted) when
+            // unavailable so the field-set on the wire stays narrow for the
+            // common case.
+            activity?.let { put("activity", it) }
             put("timestamp", timestamp)
         }
         private const val PREFS_NAME = "location_tracking_prefs"
@@ -403,7 +410,8 @@ class LocationWorker(
         accuracy = accuracy,
         altitude = altitude,
         deviceId = Settings.Secure.getString(applicationContext.contentResolver, Settings.Secure.ANDROID_ID),
-        timestamp = System.currentTimeMillis()
+        timestamp = System.currentTimeMillis(),
+        activity = ActivityRecognitionTracker.recentActivityOrNull(applicationContext)
     )
 
     private suspend fun postLocationPayload(

@@ -6,5 +6,6 @@
   "deviceType": "android",
   "source": "background-gps",
   "deviceId": "abc123def456ghi789",
+  "activity": "in_vehicle",
   "timestamp": 1735689600000
 }
