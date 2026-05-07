@@ -41,7 +41,8 @@ class LocationWorkerPayloadContractTest {
             accuracy = fixture.getDouble("accuracy"),
             altitude = fixture.getDouble("altitude"),
             deviceId = fixture.getString("deviceId"),
-            timestamp = fixture.getLong("timestamp")
+            timestamp = fixture.getLong("timestamp"),
+            activity = fixture.getString("activity")
         )
 
         // Exhaustive key set. New keys on either side must move the fixture
@@ -64,6 +65,7 @@ class LocationWorkerPayloadContractTest {
         assertEquals(fixture.getString("deviceType"), produced.getString("deviceType"))
         assertEquals(fixture.getString("source"), produced.getString("source"))
         assertEquals(fixture.getString("deviceId"), produced.getString("deviceId"))
+        assertEquals(fixture.getString("activity"), produced.getString("activity"))
         assertEquals(fixture.getLong("timestamp"), produced.getLong("timestamp"))
 
         // The two strings the server pipeline filters on. Spelling these out
@@ -72,6 +74,10 @@ class LocationWorkerPayloadContractTest {
         // fixture-and-code pair.
         assertEquals("background-gps", produced.getString("source"))
         assertEquals("android", produced.getString("deviceType"))
+        // Slice E (#1043): the en-route trigger gate uses `in_vehicle`
+        // exact-string. Lock the fixture spelling so a typo here can't drift
+        // away from `LocationUpdate.activity` parsing on the server.
+        assertEquals("in_vehicle", produced.getString("activity"))
     }
 
     @Test
@@ -93,5 +99,25 @@ class LocationWorkerPayloadContractTest {
         assertTrue("source must be present", produced.has("source"))
         assertTrue("deviceId must be present", produced.has("deviceId"))
         assertTrue("timestamp must be present", produced.has("timestamp"))
+        // Slice E (#1043): activity is also optional — a build with no
+        // ActivityRecognitionClient observation yet (or permission denied)
+        // must omit the key, not emit it as null/empty.
+        assertFalse("activity must be omitted, not null-ed", produced.has("activity"))
+    }
+
+    @Test
+    fun `activity is included when supplied`() {
+        val produced = LocationWorker.buildLocationPayloadJson(
+            latitude = 31.7619,
+            longitude = -106.485,
+            accuracy = 12.0,
+            altitude = null,
+            deviceId = "abc123def456ghi789",
+            timestamp = 1735689600000L,
+            activity = "still"
+        )
+
+        assertTrue("activity must be present when supplied", produced.has("activity"))
+        assertEquals("still", produced.getString("activity"))
     }
 }
