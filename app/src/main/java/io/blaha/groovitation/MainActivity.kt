@@ -936,6 +936,15 @@ class MainActivity : HotwireActivity() {
     }
 
     fun onNativeLocationAuthReadyFromWeb() {
+        // #1152: setSessionCookie / setLocationToken from the JS bridge is the
+        // canonical "fresh auth cookie just landed in CookieManager" signal.
+        // Retry FCM registration here so a sign-in that lands after onResume
+        // (the typical post-OAuth flow) doesn't leave us waiting for the next
+        // app backgrounding/reopen to retry. Decoupled from the personUuid
+        // gate below because token registration only needs the cookie, not
+        // the persisted personUuid prefs.
+        registerFcmTokenWithServer()
+
         if (LocationTrackingService.getPersonUuid(this) == null) {
             Log.d(TAG, "Ignoring native auth replay without personUuid")
             return
@@ -1389,7 +1398,14 @@ class MainActivity : HotwireActivity() {
         // pause/stop cycle first.
         CookieManager.getInstance().flush()
 
-        if (signedIn) return
+        if (signedIn) {
+            // #1152: setSignedInState(true) means the web layer just landed a
+            // sign-in cookie. Retry FCM registration now so the silent
+            // cookie-missing gate in registerFcmTokenWithServer can clear
+            // without waiting for the next app backgrounding/reopen.
+            registerFcmTokenWithServer()
+            return
+        }
 
         Log.d(TAG, "Signed-out state received from web, stopping background tracking")
         LocationWorker.cancel(this)
@@ -1429,14 +1445,27 @@ class MainActivity : HotwireActivity() {
     /**
      * Register the FCM token with the server so it can send push notifications.
      * Requires: authenticated session (cookie) and FCM token available.
+     *
+     * Every silent-return gate logs at Log.w so adb logcat traces (and prod
+     * crash reports) show exactly which precondition was unmet on a stall.
+     * Without these, #1152 took an evening to reproduce because all three
+     * gates exit silently and the next trigger only fires on a coarse event
+     * like onResume.
      */
     private fun registerFcmTokenWithServer() {
-        val token = TokenStorage.fcmToken ?: return
-        if (!FcmTokenStateStore.shouldRegister(applicationContext, token)) return
+        val token = TokenStorage.fcmToken
+        if (token == null) {
+            Log.w(TAG, "registerFcmTokenWithServer: gate token returned (TokenStorage.fcmToken is null)")
+            return
+        }
+        if (!FcmTokenStateStore.shouldRegister(applicationContext, token)) {
+            Log.w(TAG, "registerFcmTokenWithServer: gate alreadyRegistered returned (token unchanged and within re-register interval)")
+            return
+        }
 
         val cookie = CookieManager.getInstance().getCookie(BuildConfig.BASE_URL)
         if (cookie.isNullOrEmpty()) {
-            Log.d(TAG, "No session cookie yet, deferring FCM token registration")
+            Log.w(TAG, "registerFcmTokenWithServer: gate cookie returned (CookieManager.getCookie('${BuildConfig.BASE_URL}') is null/empty)")
             return
         }
 
@@ -1500,7 +1529,15 @@ class MainActivity : HotwireActivity() {
                     // Attempt registration now to avoid missing this startup window.
                     registerFcmTokenWithServer()
                 } else {
-                    Log.w(TAG, "Failed to get FCM token", task.exception)
+                    // #1152: Log.w with structured prefix matching the other
+                    // gates so adb logcat traces surface this on a single
+                    // grep (e.g. `adb logcat -s MainActivity:* | grep
+                    // registerFcmTokenWithServer`).
+                    Log.w(
+                        TAG,
+                        "registerFcmTokenWithServer: gate firebaseGetToken returned (Firebase getToken failed)",
+                        task.exception
+                    )
                 }
             }
         } catch (e: Exception) {
