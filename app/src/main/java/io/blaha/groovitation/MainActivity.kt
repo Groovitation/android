@@ -40,6 +40,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import dev.hotwire.navigation.activities.HotwireActivity
 import dev.hotwire.navigation.navigator.NavigatorConfiguration
 import dev.hotwire.navigation.util.applyDefaultImeWindowInsets
+import io.blaha.groovitation.services.ActivityRecognitionTracker
 import io.blaha.groovitation.services.GeofenceManager
 import io.blaha.groovitation.services.LocationTrackingService
 import io.blaha.groovitation.services.LocationWorker
@@ -170,6 +171,35 @@ class MainActivity : HotwireActivity() {
             return true
         }
 
+        /**
+         * Decides whether to fire the OS runtime prompt for
+         * `ACTIVITY_RECOGNITION` (Slice E, #1043). Pure function so the matrix
+         * is testable.
+         *
+         * `ACTIVITY_RECOGNITION` became a runtime permission in API 29 (Q). On
+         * pre-Q devices the manifest entry is install-time, so there's nothing
+         * to prompt for — we just register transitions directly. When already
+         * granted, no prompt is needed (we may still need to call
+         * `registerTransitions` if Application.onCreate skipped it, but that's
+         * the caller's concern).
+         *
+         * The historical bug this gate fixes: APK 163 shipped with the manifest
+         * entry and the Application.onCreate `registerTransitions` call, but
+         * never wired a runtime request into the permission chain. On a fresh
+         * install the tracker's `hasPermission` check short-circuited
+         * registration silently, and the user never saw the OS prompt — so
+         * `user_location_history.activity` stayed uniformly NULL even with
+         * APK 163 installed.
+         */
+        internal fun shouldPromptForActivityRecognition(
+            sdkInt: Int,
+            hasPermission: Boolean
+        ): Boolean {
+            if (sdkInt < Build.VERSION_CODES.Q) return false
+            if (hasPermission) return false
+            return true
+        }
+
         internal fun reconcileNotificationPermissionStateForVersion(
             prefs: SharedPreferences,
             currentVersionCode: Int
@@ -275,12 +305,31 @@ class MainActivity : HotwireActivity() {
 
         if (fineGranted || coarseGranted) {
             Log.d(TAG, "Location permission granted (fine=$fineGranted, coarse=$coarseGranted)")
-            // Chain: foreground location → background location dialog
-            promptBackgroundLocationPermission()
+            // Chain: foreground location → activity recognition → background
+            // location dialog. AR is signal hardening for the same trajectory
+            // pipeline as the location pings, so it's bundled with the motion
+            // permissions rather than asked separately.
+            requestActivityRecognitionPermission()
         } else {
             Log.w(TAG, "Location permission denied")
         }
         dispatchLocationPermissionState(fineGranted || coarseGranted)
+    }
+
+    private val activityRecognitionPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Log.d(TAG, "Activity recognition permission granted")
+            // Application.onCreate's registerTransitions call no-op'd at
+            // startup because the permission wasn't granted yet. Subscribe now
+            // so the next location ping can stamp an `activity` field without
+            // needing a process restart.
+            ActivityRecognitionTracker.registerTransitions(applicationContext)
+        } else {
+            Log.w(TAG, "Activity recognition permission denied")
+        }
+        promptBackgroundLocationPermission()
     }
 
     private val backgroundLocationPermissionLauncher = registerForActivityResult(
@@ -1019,12 +1068,43 @@ class MainActivity : HotwireActivity() {
         }
 
         if (anyGranted) {
-            // Already granted — chain to background and dispatch state to web
-            promptBackgroundLocationPermission()
+            // Already granted — chain to activity recognition then background
+            // and dispatch state to web. Going via AR (rather than directly to
+            // background) catches the upgrade case where a user already had
+            // location from a prior install but never saw the new AR prompt
+            // from #1043.
+            requestActivityRecognitionPermission()
             dispatchLocationPermissionState(true)
         } else {
             locationPermissionLauncher.launch(permissions)
         }
+    }
+
+    private fun requestActivityRecognitionPermission() {
+        val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACTIVITY_RECOGNITION
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            // Pre-Q: ACTIVITY_RECOGNITION is install-time via the manifest
+            // entry; Play Services treats it as implicitly granted.
+            true
+        }
+
+        if (!shouldPromptForActivityRecognition(Build.VERSION.SDK_INT, hasPermission)) {
+            if (hasPermission) {
+                // Already granted (either at install time pre-Q, or via a
+                // previous run). Re-call registerTransitions as a
+                // belt-and-suspenders against an Application.onCreate that
+                // skipped registration for a transient reason (e.g. Play
+                // Services not yet initialized when the process started).
+                ActivityRecognitionTracker.registerTransitions(applicationContext)
+            }
+            promptBackgroundLocationPermission()
+            return
+        }
+
+        activityRecognitionPermissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
     }
 
     private fun promptBackgroundLocationPermission() {
