@@ -284,4 +284,52 @@ class BackgroundLocationGateTest {
             )
         )
     }
+
+    // -- Activity recognition prompt gate (#1043) --------------------------
+
+    @Test
+    fun `pre-Q never prompts for activity recognition`() {
+        assertFalse(
+            "ACTIVITY_RECOGNITION is install-time before API 29; the manifest " +
+                "entry is sufficient on pre-Q so there's nothing to prompt for",
+            MainActivity.shouldPromptForActivityRecognition(
+                sdkInt = Build.VERSION_CODES.P,
+                hasPermission = false
+            )
+        )
+    }
+
+    @Test
+    fun `skips activity recognition prompt when permission is already granted`() {
+        assertFalse(
+            MainActivity.shouldPromptForActivityRecognition(
+                sdkInt = q,
+                hasPermission = true
+            )
+        )
+    }
+
+    @Test
+    fun `prompts for activity recognition on Q+ when permission is denied`() {
+        // The historical bug this guards against: APK 163 shipped without a
+        // runtime request for ACTIVITY_RECOGNITION, so a fresh install on Q+
+        // never saw the OS prompt and `user_location_history.activity` stayed
+        // uniformly NULL. This case must remain true so the prompt fires.
+        assertTrue(
+            MainActivity.shouldPromptForActivityRecognition(
+                sdkInt = q,
+                hasPermission = false
+            )
+        )
+    }
+
+    @Test
+    fun `prompts for activity recognition on newer SDKs when permission is denied`() {
+        assertTrue(
+            MainActivity.shouldPromptForActivityRecognition(
+                sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                hasPermission = false
+            )
+        )
+    }
 }
