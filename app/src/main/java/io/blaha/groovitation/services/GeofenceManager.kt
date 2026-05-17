@@ -48,6 +48,20 @@ class GeofenceManager(private val context: Context) {
         // BootReceiver + LocationWorker time-based refresh handle re-registration.
         private const val GEOFENCE_EXPIRATION_MS = Geofence.NEVER_EXPIRE
 
+        // #1185: paired-geofence suffixes. Each proximity candidate registers
+        // an inner ENTER fence (-enter) at radiusMeters and an outer EXIT
+        // fence (-exit) at dismissalRadiusMeters. Splitting transition types
+        // across two fences gives the user a 1.5× hysteresis margin before
+        // the in-tray notification auto-dismisses.
+        const val PROXIMITY_ENTER_SUFFIX = "-enter"
+        const val PROXIMITY_EXIT_SUFFIX = "-exit"
+
+        // Client-side fallback for the dismissal radius when the server
+        // payload is missing `dismissalRadiusMeters` (older backend builds).
+        // Server is authoritative when it provides the field — see
+        // ProximityCandidateService.DismissalRadiusMultiplier.
+        const val DEFAULT_DISMISSAL_RADIUS_MULTIPLIER = 1.5
+
         internal fun refreshRemovalIds(interestIds: Set<String>): List<String> =
             interestIds
                 .filter { it.isNotBlank() && it != TRACKING_GEOFENCE_ID }
@@ -67,6 +81,22 @@ class GeofenceManager(private val context: Context) {
             editor
                 .remove(KEY_TRACKING_LAT)
                 .remove(KEY_TRACKING_LNG)
+        }
+
+        /**
+         * #1185: pick the outer-EXIT radius for a proximity candidate. The
+         * server-provided `dismissalRadiusMeters` wins when present (lets the
+         * multiplier be tuned without an app update); falls back to the local
+         * default when absent so a new app paired with an old backend still
+         * gets paired-geofence behaviour.
+         */
+        internal fun resolveDismissalRadius(
+            innerRadius: Float,
+            serverDismissalRadius: Double
+        ): Float {
+            val resolved = if (serverDismissalRadius > 0.0) serverDismissalRadius
+            else innerRadius.toDouble() * DEFAULT_DISMISSAL_RADIUS_MULTIPLIER
+            return resolved.toFloat()
         }
     }
 
@@ -152,6 +182,14 @@ class GeofenceManager(private val context: Context) {
                 val latitude = gf.getDouble("latitude")
                 val longitude = gf.getDouble("longitude")
                 val radius = gf.getDouble("radiusMeters").toFloat()
+                // #1185: outer-EXIT radius for the paired-geofence cancel.
+                // Server-authoritative when present so the 1.5× multiplier can
+                // be tuned without an app update; defaults to 1.5× locally
+                // when the field is absent (older backend builds).
+                val dismissalRadius = resolveDismissalRadius(
+                    innerRadius = radius,
+                    serverDismissalRadius = gf.optDouble("dismissalRadiusMeters", 0.0)
+                )
                 val placeName = gf.optString("placeName", "")
                 val interestName = gf.optString("interestName", "")
                 // #705 proximity-notification fields. Older server builds omit
@@ -165,21 +203,38 @@ class GeofenceManager(private val context: Context) {
                 val deepLink = gf.optString("deepLink", "")
                 val score = gf.optDouble("score", 0.0)
 
+                // #1185: split into paired geofences. Inner fence is ENTER-only
+                // at `radius` — that's the boundary where the push fires.
+                // Outer fence is EXIT-only at `dismissalRadius` (1.5× by
+                // default) — that's where the in-tray notification
+                // auto-dismisses. Pairing the transition flags avoids
+                // cross-fired events (inner-EXIT or outer-ENTER), which would
+                // either re-fire the push on outer entry or dismiss the
+                // notification at 1× rather than 1.5×.
                 geofences.add(
                     Geofence.Builder()
-                        .setRequestId(id)
+                        .setRequestId(id + PROXIMITY_ENTER_SUFFIX)
                         .setCircularRegion(latitude, longitude, radius)
                         .setExpirationDuration(GEOFENCE_EXPIRATION_MS)
-                        .setTransitionTypes(
-                            Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT
-                        )
+                        .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)
+                        .build()
+                )
+                geofences.add(
+                    Geofence.Builder()
+                        .setRequestId(id + PROXIMITY_EXIT_SUFFIX)
+                        .setCircularRegion(latitude, longitude, dismissalRadius)
+                        .setExpirationDuration(GEOFENCE_EXPIRATION_MS)
+                        .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT)
                         .build()
                 )
 
-                // Cache metadata for the broadcast receiver. Keep the legacy
-                // placeName/interestName/lat/lng keys so older receivers still
-                // work during a mixed rollout; add targetKind/targetId/imageUrl/
-                // deepLink/score/radiusMeters for the rich-notification path.
+                // Cache metadata under the base id only (single source of
+                // truth). `GeofenceBroadcastReceiver` strips the -enter/-exit
+                // suffix from the triggering request id before this lookup.
+                // Keep the legacy placeName/interestName/lat/lng keys so older
+                // receivers still work during a mixed rollout; add
+                // targetKind/targetId/imageUrl/deepLink/score/radiusMeters for
+                // the rich-notification path.
                 metadata.put(id, JSONObject().apply {
                     put("placeName", placeName)
                     put("interestName", interestName)
@@ -191,6 +246,7 @@ class GeofenceManager(private val context: Context) {
                     put("deepLink", deepLink)
                     put("score", score)
                     put("radiusMeters", radius.toDouble())
+                    put("dismissalRadiusMeters", dismissalRadius.toDouble())
                 })
             }
 

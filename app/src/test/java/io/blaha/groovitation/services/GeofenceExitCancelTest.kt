@@ -58,4 +58,45 @@ class GeofenceExitCancelTest {
         val b = GeofenceBroadcastReceiver.proximityNotificationId("site", "b")
         assert(a != b) { "Different targets must yield different notification ids ($a == $b)" }
     }
+
+    // #1185: paired geofences register inner-ENTER + outer-EXIT under
+    // `${baseId}-enter` / `${baseId}-exit`. The receiver looks up metadata by
+    // the base id (single source of truth), so the suffix-strip helper has to
+    // recover the base id from either firing.
+
+    @Test
+    fun `baseGeofenceId strips the -exit suffix used by the outer EXIT fence`() {
+        assertEquals(
+            "proximity-site-abc-123",
+            GeofenceBroadcastReceiver.baseGeofenceId("proximity-site-abc-123-exit")
+        )
+    }
+
+    @Test
+    fun `baseGeofenceId strips the -enter suffix used by the inner ENTER fence`() {
+        assertEquals(
+            "proximity-event-xyz",
+            GeofenceBroadcastReceiver.baseGeofenceId("proximity-event-xyz-enter")
+        )
+    }
+
+    @Test
+    fun `baseGeofenceId leaves legacy unsuffixed proximity ids untouched`() {
+        // Mixed-rollout safety: a metadata blob written by a pre-#1185 client
+        // stores entries under the unsuffixed id. If a geofence registration
+        // from that build is still live, the EXIT firing comes in without a
+        // suffix, and the receiver must still resolve it.
+        assertEquals(
+            "proximity-site-legacy",
+            GeofenceBroadcastReceiver.baseGeofenceId("proximity-site-legacy")
+        )
+    }
+
+    @Test
+    fun `baseGeofenceId leaves the tracking geofence id alone`() {
+        assertEquals(
+            GeofenceManager.TRACKING_GEOFENCE_ID,
+            GeofenceBroadcastReceiver.baseGeofenceId(GeofenceManager.TRACKING_GEOFENCE_ID)
+        )
+    }
 }

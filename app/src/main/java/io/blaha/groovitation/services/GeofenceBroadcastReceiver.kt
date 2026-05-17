@@ -74,6 +74,21 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         internal fun proximityNotificationId(targetKind: String, targetId: String): Int =
             NOTIFICATION_ID_BASE + (proximityDedupKey(targetKind, targetId).hashCode() and 0xFFFF)
+
+        /**
+         * #1185: strip the paired-geofence `-enter` / `-exit` suffix from a
+         * triggering request id before looking it up in the metadata blob.
+         * `GeofenceManager` stores metadata under the base id only (single
+         * source of truth); legacy geofences without a suffix pass through
+         * unchanged.
+         */
+        internal fun baseGeofenceId(requestId: String): String = when {
+            requestId.endsWith(GeofenceManager.PROXIMITY_ENTER_SUFFIX) ->
+                requestId.removeSuffix(GeofenceManager.PROXIMITY_ENTER_SUFFIX)
+            requestId.endsWith(GeofenceManager.PROXIMITY_EXIT_SUFFIX) ->
+                requestId.removeSuffix(GeofenceManager.PROXIMITY_EXIT_SUFFIX)
+            else -> requestId
+        }
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -174,7 +189,14 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         val notifManager = NotificationManagerCompat.from(context)
         for (fence in proximityFences) {
-            val entry = metadata.optJSONObject(fence.requestId) ?: continue
+            // #1185: paired geofences register inner-ENTER + outer-EXIT under
+            // `${baseId}-enter` / `${baseId}-exit`. EXIT firings here come
+            // from the outer fence; strip the suffix to look up the shared
+            // metadata entry under the base id.
+            val baseId = baseGeofenceId(fence.requestId)
+            val entry = metadata.optJSONObject(baseId)
+                ?: metadata.optJSONObject(fence.requestId)
+                ?: continue
             val targetKind = entry.optString("targetKind", "")
             val targetId = entry.optString("targetId", "")
             if (targetKind.isBlank() || targetId.isBlank()) {
