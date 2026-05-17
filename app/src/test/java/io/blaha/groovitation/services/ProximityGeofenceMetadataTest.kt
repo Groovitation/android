@@ -117,4 +117,54 @@ class ProximityGeofenceMetadataTest {
         assertEquals("xyz", serverPayload.getString("targetId"))
         assertEquals("/map?event=xyz", serverPayload.getString("deepLink"))
     }
+
+    // #1185: paired-geofence schema. Server emits `dismissalRadiusMeters`
+    // alongside `radiusMeters` so the client can register an outer EXIT fence
+    // at the 1.5× boundary without baking the multiplier into the app.
+
+    @Test
+    fun `paired-geofence schema carries dismissalRadiusMeters next to radiusMeters`() {
+        val serverPayload = JSONObject().apply {
+            put("id", "proximity-site-abc")
+            put("latitude", 32.78)
+            put("longitude", -96.80)
+            put("radiusMeters", 300.0)
+            put("dismissalRadiusMeters", 450.0)
+            put("type", "site")
+            put("targetKind", "site")
+            put("targetId", "abc")
+            put("placeName", "Test")
+            put("interestName", "Test")
+            put("imageUrl", JSONObject.NULL)
+            put("deepLink", "/map?site=abc")
+            put("score", 0.9)
+        }
+        assertEquals(300.0, serverPayload.getDouble("radiusMeters"), 0.0001)
+        assertEquals(450.0, serverPayload.getDouble("dismissalRadiusMeters"), 0.0001)
+    }
+
+    @Test
+    fun `missing dismissalRadiusMeters resolves to 1_5x via the manager helper`() {
+        // Older server build: only `radiusMeters` is present. The Android
+        // client multiplies locally instead of dropping the candidate or
+        // regressing to single-fence boundary cancel.
+        val serverPayload = JSONObject().apply {
+            put("id", "proximity-site-legacy")
+            put("latitude", 0.0)
+            put("longitude", 0.0)
+            put("radiusMeters", 200.0)
+            put("type", "site")
+            put("targetKind", "site")
+            put("targetId", "legacy")
+            put("placeName", "Legacy")
+            put("interestName", "")
+            put("imageUrl", JSONObject.NULL)
+            put("deepLink", "/map?site=legacy")
+            put("score", 0.5)
+        }
+        val radius = serverPayload.getDouble("radiusMeters").toFloat()
+        val serverDismissal = serverPayload.optDouble("dismissalRadiusMeters", 0.0)
+        val resolved = GeofenceManager.resolveDismissalRadius(radius, serverDismissal)
+        assertEquals(300.0f, resolved, 0.0001f)
+    }
 }
