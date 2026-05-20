@@ -271,6 +271,8 @@ class MainActivity : HotwireActivity() {
     private var lastNativeLocationAuthReplayElapsedMs: Long = 0L
     private var pendingFileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCapture: PendingCameraCapture? = null
+    private var pendingWebRtcPermissions: Set<String> = emptySet()
+    private var pendingWebRtcPermissionCallback: ((Set<String>) -> Unit)? = null
     private var activeImageIntakeDialog: BottomSheetDialog? = null
     private val nativeGoogleSignInCoordinator by lazy {
         NativeGoogleSignInCoordinator(
@@ -347,6 +349,29 @@ class MainActivity : HotwireActivity() {
             Log.w(TAG, "Background location permission denied")
             showBackgroundLocationExplanation()
         }
+    }
+
+    private val webRtcPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val requestedPermissions = pendingWebRtcPermissions
+        val callback = pendingWebRtcPermissionCallback
+        pendingWebRtcPermissions = emptySet()
+        pendingWebRtcPermissionCallback = null
+
+        val grantedPermissions = requestedPermissions
+            .filter { permission ->
+                result[permission] == true ||
+                    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+            }
+            .toSet()
+
+        if (grantedPermissions.containsAll(requestedPermissions)) {
+            Log.d(TAG, "WebRTC media permissions granted: $grantedPermissions")
+        } else {
+            Log.w(TAG, "WebRTC media permissions denied; granted=$grantedPermissions requested=$requestedPermissions")
+        }
+        callback?.invoke(grantedPermissions)
     }
 
     private val fileChooserLauncher = registerForActivityResult(
@@ -797,6 +822,35 @@ class MainActivity : HotwireActivity() {
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ))
         }
+    }
+
+    fun requestWebRtcPermissions(
+        requiredPermissions: Set<String>,
+        onResult: (Set<String>) -> Unit
+    ) {
+        val supportedPermissions = requiredPermissions
+            .filter { it == Manifest.permission.CAMERA || it == Manifest.permission.RECORD_AUDIO }
+            .toSet()
+        if (supportedPermissions.isEmpty()) {
+            onResult(emptySet())
+            return
+        }
+
+        val alreadyGranted = supportedPermissions
+            .filter { permission ->
+                ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+            }
+            .toSet()
+        val missingPermissions = supportedPermissions - alreadyGranted
+        if (missingPermissions.isEmpty()) {
+            onResult(supportedPermissions)
+            return
+        }
+
+        pendingWebRtcPermissionCallback?.invoke(emptySet())
+        pendingWebRtcPermissions = supportedPermissions
+        pendingWebRtcPermissionCallback = onResult
+        webRtcPermissionLauncher.launch(missingPermissions.toTypedArray())
     }
 
     fun launchImageChooser(

@@ -12,6 +12,7 @@ import android.util.AttributeSet
 import android.util.Log
 import android.widget.Toast
 import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -62,6 +63,34 @@ class GroovitationWebView @JvmOverloads constructor(
             ".heic",
             ".heif"
         )
+        private val WEB_RTC_RESOURCE_TO_PERMISSION = mapOf(
+            PermissionRequest.RESOURCE_VIDEO_CAPTURE to Manifest.permission.CAMERA,
+            PermissionRequest.RESOURCE_AUDIO_CAPTURE to Manifest.permission.RECORD_AUDIO
+        )
+
+        internal fun nativePermissionsForWebRtcResources(resources: Array<String>?): Set<String> {
+            return resources.orEmpty()
+                .mapNotNull { WEB_RTC_RESOURCE_TO_PERMISSION[it] }
+                .toSet()
+        }
+
+        internal fun hasOnlySupportedWebRtcResources(resources: Array<String>?): Boolean {
+            val requested = resources.orEmpty()
+            if (requested.isEmpty()) return false
+            return requested.all { WEB_RTC_RESOURCE_TO_PERMISSION.containsKey(it) }
+        }
+
+        internal fun grantableWebRtcResources(
+            resources: Array<String>?,
+            grantedPermissions: Set<String>
+        ): Array<String> {
+            return resources.orEmpty()
+                .filter { resource ->
+                    val nativePermission = WEB_RTC_RESOURCE_TO_PERMISSION[resource]
+                    nativePermission != null && grantedPermissions.contains(nativePermission)
+                }
+                .toTypedArray()
+        }
 
         internal fun isSupportedAvatarMimeType(mimeType: String?): Boolean {
             if (mimeType.isNullOrBlank()) return false
@@ -233,8 +262,37 @@ class GroovitationWebView @JvmOverloads constructor(
             delegate.onHideCustomView()
         }
 
-        override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
-            delegate.onPermissionRequest(request)
+        override fun onPermissionRequest(request: PermissionRequest?) {
+            if (request == null) {
+                delegate.onPermissionRequest(null)
+                return
+            }
+
+            val requestedResources = request.resources ?: emptyArray()
+            if (!hasOnlySupportedWebRtcResources(requestedResources)) {
+                Log.w(TAG, "Denying unsupported WebRTC permission resources=${requestedResources.joinToString()}")
+                request.deny()
+                return
+            }
+
+            val nativePermissions = nativePermissionsForWebRtcResources(requestedResources)
+            val activity = appContext.findMainActivity()
+            if (activity == null) {
+                Log.w(TAG, "Denying WebRTC permission request without MainActivity context")
+                request.deny()
+                return
+            }
+
+            activity.requestWebRtcPermissions(nativePermissions) { grantedPermissions ->
+                val grantableResources = grantableWebRtcResources(requestedResources, grantedPermissions)
+                if (grantableResources.isEmpty()) {
+                    Log.w(TAG, "Denying WebRTC permission request after native permission denial")
+                    request.deny()
+                } else {
+                    Log.d(TAG, "Granting WebRTC resources=${grantableResources.joinToString()}")
+                    request.grant(grantableResources)
+                }
+            }
         }
 
         override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
