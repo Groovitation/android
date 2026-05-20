@@ -37,4 +37,38 @@ class PermissionBridgeSourceTest {
         assertTrue(source.contains("fun getDeviceId(): String"))
         assertTrue(source.contains("Settings.Secure.ANDROID_ID"))
     }
+
+    @Test
+    fun manifestDeclaresOptionalCameraAndMicrophoneForInlineJitsi() {
+        val source = File("src/main/AndroidManifest.xml").readText()
+
+        assertTrue(source.contains("""android.permission.CAMERA"""))
+        assertTrue(source.contains("""android.permission.RECORD_AUDIO"""))
+        assertTrue(source.contains("""android.hardware.camera.any"""))
+        assertTrue(source.contains("""android.hardware.microphone"""))
+        assertTrue(source.contains("android:required=\"false\""))
+    }
+
+    @Test
+    fun mainActivityBridgesWebRtcPermissionRequestsOnDemand() {
+        val source = File("src/main/java/io/blaha/groovitation/MainActivity.kt").readText()
+
+        assertTrue(source.contains("private val webRtcPermissionLauncher = registerForActivityResult"))
+        assertTrue(source.contains("ActivityResultContracts.RequestMultiplePermissions()"))
+        assertTrue(source.contains("fun requestWebRtcPermissions("))
+        assertTrue(source.contains("Manifest.permission.CAMERA"))
+        assertTrue(source.contains("Manifest.permission.RECORD_AUDIO"))
+        assertTrue(source.contains("webRtcPermissionLauncher.launch(missingPermissions.toTypedArray())"))
+    }
+
+    @Test
+    fun groovitationWebViewGrantsWebRtcResourcesOnlyAfterNativePermissionGrant() {
+        val source = File("src/main/java/io/blaha/groovitation/GroovitationWebView.kt").readText()
+
+        assertTrue(source.contains("override fun onPermissionRequest(request: PermissionRequest?)"))
+        assertTrue(source.contains("nativePermissionsForWebRtcResources(requestedResources)"))
+        assertTrue(source.contains("activity.requestWebRtcPermissions(nativePermissions)"))
+        assertTrue(source.contains("request.grant(grantableResources)"))
+        assertTrue(source.contains("request.deny()"))
+    }
 }
