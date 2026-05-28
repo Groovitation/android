@@ -71,4 +71,14 @@ class PermissionBridgeSourceTest {
         assertTrue(source.contains("request.grant(grantableResources)"))
         assertTrue(source.contains("request.deny()"))
     }
+
+    @Test
+    fun groovitationWebViewBlocksNativeJitsiDeepLinks() {
+        val source = File("src/main/java/io/blaha/groovitation/GroovitationWebView.kt").readText()
+
+        assertTrue(source.contains("override fun setWebViewClient(client: WebViewClient)"))
+        assertTrue(source.contains("JitsiHandoffBlockingWebViewClient(client)"))
+        assertTrue(source.contains("isJitsiNativeHandoffUrl(url)"))
+        assertTrue(source.contains("org.jitsi.meet"))
+    }
 }
