@@ -13,7 +13,10 @@ import android.util.Log
 import android.widget.Toast
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
 import android.webkit.WebChromeClient
+import android.webkit.WebViewClient
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import dev.hotwire.core.turbo.webview.HotwireWebView
@@ -67,6 +70,11 @@ class GroovitationWebView @JvmOverloads constructor(
             PermissionRequest.RESOURCE_VIDEO_CAPTURE to Manifest.permission.CAMERA,
             PermissionRequest.RESOURCE_AUDIO_CAPTURE to Manifest.permission.RECORD_AUDIO
         )
+        private val NATIVE_JITSI_SCHEMES = setOf(
+            "org.jitsi.meet",
+            "jitsi-meet"
+        )
+        private const val JITSI_ANDROID_PACKAGE = "org.jitsi.meet"
 
         internal fun nativePermissionsForWebRtcResources(resources: Array<String>?): Set<String> {
             return resources.orEmpty()
@@ -90,6 +98,42 @@ class GroovitationWebView @JvmOverloads constructor(
                     nativePermission != null && grantedPermissions.contains(nativePermission)
                 }
                 .toTypedArray()
+        }
+
+        internal fun isJitsiNativeHandoffUrl(rawUrl: String?): Boolean {
+            if (rawUrl.isNullOrBlank()) return false
+            val normalizedUrl = rawUrl.trim()
+            val lowerUrl = normalizedUrl.lowercase()
+            if (lowerUrl.startsWith("intent:")) {
+                return lowerUrl.contains(JITSI_ANDROID_PACKAGE) ||
+                    lowerUrl.contains("jitsi")
+            }
+            if (NATIVE_JITSI_SCHEMES.any { lowerUrl.startsWith("$it:") }) return true
+            if (lowerUrl.startsWith("android-app://") && lowerUrl.contains(JITSI_ANDROID_PACKAGE)) return true
+            if ((lowerUrl.startsWith("market:") || lowerUrl.startsWith("http:") || lowerUrl.startsWith("https:")) &&
+                lowerUrl.contains(JITSI_ANDROID_PACKAGE)
+            ) {
+                return true
+            }
+
+            val uri = runCatching { Uri.parse(normalizedUrl) }.getOrNull() ?: return false
+            val scheme = uri.scheme?.lowercase()
+
+            if (scheme in NATIVE_JITSI_SCHEMES) return true
+            if (scheme == "android-app" && lowerUrl.contains(JITSI_ANDROID_PACKAGE)) return true
+
+            if (scheme == "intent") {
+                return lowerUrl.contains(JITSI_ANDROID_PACKAGE) ||
+                    lowerUrl.contains("jitsi")
+            }
+
+            if ((scheme == "market" || scheme == "https" || scheme == "http") &&
+                lowerUrl.contains(JITSI_ANDROID_PACKAGE)
+            ) {
+                return true
+            }
+
+            return false
         }
 
         internal fun isSupportedAvatarMimeType(mimeType: String?): Boolean {
@@ -197,6 +241,112 @@ class GroovitationWebView @JvmOverloads constructor(
             super.setWebChromeClient(GeolocationWebChromeClient(client, context))
         } else {
             super.setWebChromeClient(client)
+        }
+    }
+
+    override fun setWebViewClient(client: WebViewClient) {
+        if (client is JitsiHandoffBlockingWebViewClient) {
+            super.setWebViewClient(client)
+        } else {
+            super.setWebViewClient(JitsiHandoffBlockingWebViewClient(client))
+        }
+    }
+
+    internal class JitsiHandoffBlockingWebViewClient(
+        private val delegate: WebViewClient
+    ) : WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+            val url = request?.url?.toString()
+            if (isJitsiNativeHandoffUrl(url)) {
+                logBlockedJitsiHandoff(url)
+                return true
+            }
+            return delegate.shouldOverrideUrlLoading(view, request)
+        }
+
+        @Deprecated("Deprecated in Android API 24")
+        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+            if (isJitsiNativeHandoffUrl(url)) {
+                logBlockedJitsiHandoff(url)
+                return true
+            }
+            return delegate.shouldOverrideUrlLoading(view, url)
+        }
+
+        private fun logBlockedJitsiHandoff(url: String?) {
+            runCatching {
+                Log.w(TAG, "Blocking native Jitsi handoff URL in WebView: $url")
+            }
+        }
+
+        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+            delegate.onPageStarted(view, url, favicon)
+        }
+
+        override fun onPageFinished(view: WebView?, url: String?) {
+            delegate.onPageFinished(view, url)
+        }
+
+        override fun onPageCommitVisible(view: WebView?, url: String?) {
+            delegate.onPageCommitVisible(view, url)
+        }
+
+        override fun onLoadResource(view: WebView?, url: String?) {
+            delegate.onLoadResource(view, url)
+        }
+
+        override fun shouldInterceptRequest(
+            view: WebView?,
+            request: WebResourceRequest?
+        ): android.webkit.WebResourceResponse? {
+            return delegate.shouldInterceptRequest(view, request)
+        }
+
+        @Deprecated("Deprecated in Android API 21")
+        override fun shouldInterceptRequest(
+            view: WebView?,
+            url: String?
+        ): android.webkit.WebResourceResponse? {
+            return delegate.shouldInterceptRequest(view, url)
+        }
+
+        override fun onReceivedError(
+            view: WebView?,
+            request: WebResourceRequest?,
+            error: android.webkit.WebResourceError?
+        ) {
+            delegate.onReceivedError(view, request, error)
+        }
+
+        @Deprecated("Deprecated in Android API 23")
+        override fun onReceivedError(
+            view: WebView?,
+            errorCode: Int,
+            description: String?,
+            failingUrl: String?
+        ) {
+            delegate.onReceivedError(view, errorCode, description, failingUrl)
+        }
+
+        override fun onReceivedHttpError(
+            view: WebView?,
+            request: WebResourceRequest?,
+            errorResponse: android.webkit.WebResourceResponse?
+        ) {
+            delegate.onReceivedHttpError(view, request, errorResponse)
+        }
+
+        override fun onReceivedHttpAuthRequest(
+            view: WebView?,
+            handler: android.webkit.HttpAuthHandler?,
+            host: String?,
+            realm: String?
+        ) {
+            delegate.onReceivedHttpAuthRequest(view, handler, host, realm)
+        }
+
+        override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+            delegate.doUpdateVisitedHistory(view, url, isReload)
         }
     }
 

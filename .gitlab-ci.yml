@@ -105,7 +105,8 @@ default:
       ensure_google_services_clients
     - export ANDROID_HOME="/home/ben/Android/Sdk"
     - export ANDROID_AVD_HOME="/home/ben/.android/avd"
-    - export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
+    - export JAVA_HOME="/home/ben/.sdkman/candidates/java/current"
+    - export PATH=$JAVA_HOME/bin:$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator
     - chmod +x ./gradlew
 
 build:
