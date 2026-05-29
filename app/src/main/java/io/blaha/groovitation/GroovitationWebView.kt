@@ -88,6 +88,10 @@ class GroovitationWebView @JvmOverloads constructor(
             return requested.all { WEB_RTC_RESOURCE_TO_PERMISSION.containsKey(it) }
         }
 
+        internal fun hasSupportedWebRtcResources(resources: Array<String>?): Boolean {
+            return resources.orEmpty().any { WEB_RTC_RESOURCE_TO_PERMISSION.containsKey(it) }
+        }
+
         internal fun grantableWebRtcResources(
             resources: Array<String>?,
             grantedPermissions: Set<String>
@@ -419,10 +423,15 @@ class GroovitationWebView @JvmOverloads constructor(
             }
 
             val requestedResources = request.resources ?: emptyArray()
-            if (!hasOnlySupportedWebRtcResources(requestedResources)) {
+            if (!hasSupportedWebRtcResources(requestedResources)) {
                 Log.w(TAG, "Denying unsupported WebRTC permission resources=${requestedResources.joinToString()}")
                 request.deny()
                 return
+            }
+            val unsupportedResources = requestedResources
+                .filterNot { WEB_RTC_RESOURCE_TO_PERMISSION.containsKey(it) }
+            if (unsupportedResources.isNotEmpty()) {
+                Log.w(TAG, "Ignoring unsupported WebRTC permission resources=${unsupportedResources.joinToString()}")
             }
 
             val nativePermissions = nativePermissionsForWebRtcResources(requestedResources)
