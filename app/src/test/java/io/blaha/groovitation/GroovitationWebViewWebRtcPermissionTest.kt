@@ -33,6 +33,30 @@ class GroovitationWebViewWebRtcPermissionTest {
                 arrayOf(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID)
             )
         )
+        assertFalse(
+            GroovitationWebView.hasSupportedWebRtcResources(
+                arrayOf(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID)
+            )
+        )
+    }
+
+    @Test
+    fun acceptsMixedWebRtcRequestsWhenAudioOrVideoIsPresent() {
+        val resources = arrayOf(
+            PermissionRequest.RESOURCE_AUDIO_CAPTURE,
+            PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID
+        )
+
+        assertFalse(GroovitationWebView.hasOnlySupportedWebRtcResources(resources))
+        assertTrue(GroovitationWebView.hasSupportedWebRtcResources(resources))
+
+        assertArrayEquals(
+            arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE),
+            GroovitationWebView.grantableWebRtcResources(
+                resources,
+                setOf(Manifest.permission.RECORD_AUDIO)
+            )
+        )
     }
 
     @Test
