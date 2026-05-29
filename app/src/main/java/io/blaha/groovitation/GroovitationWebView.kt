@@ -238,6 +238,7 @@ class GroovitationWebView @JvmOverloads constructor(
     init {
         Log.d(TAG, "GroovitationWebView initialized")
         settings.setGeolocationEnabled(true)
+        settings.mediaPlaybackRequiresUserGesture = false
     }
 
     override fun setWebChromeClient(client: WebChromeClient?) {
