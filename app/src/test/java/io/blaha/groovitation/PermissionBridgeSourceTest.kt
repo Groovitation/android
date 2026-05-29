@@ -44,6 +44,7 @@ class PermissionBridgeSourceTest {
 
         assertTrue(source.contains("""android.permission.CAMERA"""))
         assertTrue(source.contains("""android.permission.RECORD_AUDIO"""))
+        assertTrue(source.contains("""android.permission.MODIFY_AUDIO_SETTINGS"""))
         assertTrue(source.contains("""android.hardware.camera.any"""))
         assertTrue(source.contains("""android.hardware.microphone"""))
         assertTrue(source.contains("android:required=\"false\""))
@@ -70,6 +71,7 @@ class PermissionBridgeSourceTest {
         assertTrue(source.contains("activity.requestWebRtcPermissions(nativePermissions)"))
         assertTrue(source.contains("request.grant(grantableResources)"))
         assertTrue(source.contains("request.deny()"))
+        assertTrue(source.contains("settings.mediaPlaybackRequiresUserGesture = false"))
     }
 
     @Test

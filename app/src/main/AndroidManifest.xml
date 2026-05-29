@@ -35,6 +35,7 @@
     <!-- WebRTC media capture for inline Jitsi rooms in the Hotwire WebView. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Allow asking the OS to exempt us from battery optimizations.
          Used to keep WorkManager's 15-min periodic location worker alive on
