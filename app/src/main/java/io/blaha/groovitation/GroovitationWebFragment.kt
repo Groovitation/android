@@ -31,6 +31,62 @@ class GroovitationWebFragment : HotwireWebFragment() {
         private const val NOTIFICATION_PERMISSION_EVENT = "groovitation:notification-permission"
         private const val LOCATION_PERMISSION_EVENT = "groovitation:location-permission"
 
+        // Max in-session refreshes attempted when a login page renders after the
+        // user was already authenticated this process. One refresh (carrying the
+        // warm WebView's session cookie + cached Basic-Auth credential) is enough
+        // for the transient cold-boot/401 race; the bound stops a genuine logout
+        // from looping.
+        private const val LOGIN_RECOVERY_MAX_RETRIES = 2
+
+        // Process-scoped (NOT per-fragment): set true the first time any web page
+        // renders as authenticated (i.e. NOT the login page). The bottom-nav Events
+        // tab uses Navigator.clearAll(), which pops to the start destination and
+        // recreates the '/' fragment on every Map -> Events return (#1912). That
+        // fresh fragment cold-boots a page load that can lose the nginx Basic-Auth
+        // race and render the HTTP-200 web login even though the session is valid.
+        // A per-fragment "was authenticated" flag resets on every such recreation,
+        // so we track it at process scope to tell the transient race (recover) from
+        // a genuine logged-out state (leave the login page alone).
+        @Volatile
+        private var hasAuthenticatedThisProcess = false
+
+        /**
+         * Pure decision for whether an observed login render should trigger an
+         * in-session recovery refresh. Recover only when the page is the login
+         * page AND we were authenticated earlier in this process AND we still have
+         * retry budget. Extracted for unit testing without a WebView.
+         */
+        internal fun shouldRecoverFromLoginRender(
+            isLoginPage: Boolean,
+            hasAuthenticatedBefore: Boolean,
+            retryCount: Int
+        ): Boolean {
+            if (!isLoginPage) return false
+            if (!hasAuthenticatedBefore) return false
+            return retryCount < LOGIN_RECOVERY_MAX_RETRIES
+        }
+
+        internal fun buildLoginDetectionScript(): String = """
+            (function() {
+              try {
+                var hasSignInForm = !!document.querySelector('form[action="/users/sign_in"]');
+                var hasEmailField = !!document.getElementById('user_email');
+                var hasPasswordField = !!document.getElementById('user_password');
+                var path = (window.location && window.location.pathname) || '';
+                var onSignInPath = path.indexOf('/users/sign_in') === 0;
+                var isLogin = (hasSignInForm && hasPasswordField) || hasEmailField || onSignInPath;
+                return JSON.stringify({ isLogin: isLogin, path: path });
+              } catch (e) {
+                return JSON.stringify({ isLogin: false, path: '', error: String(e) });
+              }
+            })();
+        """.trimIndent()
+
+        /** Test-only: reset process-scoped auth state between Robolectric tests. */
+        internal fun resetAuthStateForTest() {
+            hasAuthenticatedThisProcess = false
+        }
+
         internal fun buildCloseTopWebModalScript(): String = """
             (function() {
               function isVisible(modal) {
@@ -143,6 +199,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
     private var hasSuccessfulVisit = false
     private var coldBootRetryCount = 0
     private var styleRecoveryRetryCount = 0
+    private var loginRecoveryRetryCount = 0
     private var pendingExternalBrowserReturnUrl: String? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -156,6 +213,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         installNativeAppBridgeShim()
         (activity as? MainActivity)?.syncPermissionStatesToWeb()
         verifyStylesheetLoadAndRecover(location)
+        detectLoginRenderAndRecover(location)
     }
 
     override fun onVisitCompleted(location: String, completedOffline: Boolean) {
@@ -164,6 +222,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         installNativeAppBridgeShim()
         (activity as? MainActivity)?.syncPermissionStatesToWeb()
         verifyStylesheetLoadAndRecover(location)
+        detectLoginRenderAndRecover(location)
     }
 
     override fun onVisitErrorReceived(location: String, error: VisitError) {
@@ -194,6 +253,7 @@ class GroovitationWebFragment : HotwireWebFragment() {
         (activity as? MainActivity)?.unregisterWebFragment(this)
         attachedWebView = null
         styleRecoveryRetryCount = 0
+        loginRecoveryRetryCount = 0
     }
 
     override fun onResume() {
@@ -263,6 +323,61 @@ class GroovitationWebFragment : HotwireWebFragment() {
                             "Auto-refreshing once to recover stylesheet load."
                     )
                     view?.postDelayed({ if (isAdded) refresh(true) }, 250)
+                }
+            }
+        }
+    }
+
+    /**
+     * #1912: after every completed visit, check whether the rendered page is the
+     * web login. A login render is the *expected* page when the user is genuinely
+     * logged out, but it is also what the Events-tab clearAll() cold boot produces
+     * when it loses the nginx Basic-Auth race even though the session is valid
+     * (other tabs work). The existing [onVisitErrorReceived] guard only catches the
+     * VisitError case; a 401 that the WebView's auth handler answers can still come
+     * back HTTP 200 with the web login, which Hotwire reports as a *successful*
+     * visit — so this is the gap that left the user stranded on login.
+     *
+     * Recovery is gated on [hasAuthenticatedThisProcess]: only refresh when we know
+     * the user was authenticated earlier in this process (so this login render is
+     * the race, not a real logout) and only up to [LOGIN_RECOVERY_MAX_RETRIES]
+     * times. The refresh reuses the warm WebView (session cookie + cached
+     * credential), so the retry renders the authenticated page.
+     */
+    private fun detectLoginRenderAndRecover(location: String) {
+        val webView = attachedWebView ?: return
+        val script = buildLoginDetectionScript()
+
+        webView.post {
+            webView.evaluateJavascript(script) { rawResult ->
+                val decodedJson = decodeJsString(rawResult) ?: return@evaluateJavascript
+                val payload = runCatching { JSONObject(decodedJson) }.getOrNull() ?: return@evaluateJavascript
+                val isLogin = payload.optBoolean("isLogin", false)
+                val path = payload.optString("path", location)
+
+                if (!isLogin) {
+                    // An authenticated (non-login) page rendered. Remember it for
+                    // the rest of the process and reset this fragment's budget.
+                    hasAuthenticatedThisProcess = true
+                    loginRecoveryRetryCount = 0
+                    return@evaluateJavascript
+                }
+
+                if (shouldRecoverFromLoginRender(
+                        isLoginPage = true,
+                        hasAuthenticatedBefore = hasAuthenticatedThisProcess,
+                        retryCount = loginRecoveryRetryCount
+                    )
+                ) {
+                    loginRecoveryRetryCount++
+                    Log.w(
+                        TAG,
+                        "Login page rendered at $path after prior authentication; " +
+                            "in-session recovery refresh #$loginRecoveryRetryCount (#1912)."
+                    )
+                    view?.postDelayed({ if (isAdded) refresh(true) }, 400)
+                } else if (!hasAuthenticatedThisProcess) {
+                    Log.d(TAG, "Login page rendered at $path with no prior auth — genuine logout, leaving as-is.")
                 }
             }
         }
