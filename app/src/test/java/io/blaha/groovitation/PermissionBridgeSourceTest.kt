@@ -83,4 +83,12 @@ class PermissionBridgeSourceTest {
         assertTrue(source.contains("isJitsiNativeHandoffUrl(url)"))
         assertTrue(source.contains("org.jitsi.meet"))
     }
+
+    @Test
+    fun groovitationWebFragmentExposesExplicitJitsiAppHandoff() {
+        val source = File("src/main/java/io/blaha/groovitation/GroovitationWebFragment.kt").readText()
+
+        assertTrue(source.contains("fun openJitsiApp(roomUrl: String, eventId: String): String"))
+        assertTrue(source.contains("JitsiMeetIntentFactory.open(act, roomUrl).webValue"))
+    }
 }

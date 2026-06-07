@@ -641,6 +641,13 @@ class GroovitationWebFragment : HotwireWebFragment() {
         }
 
         @JavascriptInterface
+        fun openJitsiApp(roomUrl: String, eventId: String): String {
+            Log.d(TAG, "openJitsiApp: eventId=$eventId")
+            val act = activity ?: return JitsiMeetIntentFactory.JitsiLaunchResult.Error.webValue
+            return JitsiMeetIntentFactory.open(act, roomUrl).webValue
+        }
+
+        @JavascriptInterface
         fun signInWithGoogle(serverClientId: String, returnUrl: String, fallbackUrl: String) {
             Log.d(TAG, "signInWithGoogle: returnUrl=$returnUrl fallbackUrl=$fallbackUrl")
             val mainActivity = activity as? MainActivity ?: return

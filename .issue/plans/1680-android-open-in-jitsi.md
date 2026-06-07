@@ -2,7 +2,7 @@
 
 ## Plan
 
-- Add a dedicated Hotwire bridge component for explicit Jitsi handoff instead of allowing Jitsi's generic deep-link promo URLs.
+- Add a dedicated `GroovitationNative.openJitsiApp` JavaScript bridge for explicit Jitsi handoff instead of allowing Jitsi's generic deep-link promo URLs. Use this direct interface rather than a Hotwire component because the web layer needs a synchronous opened/store/error result before deciding whether to close the inline call.
 - Build package-targeted `org.jitsi.meet` launch intents from JWT-bearing HTTPS room URLs; fall back to the Play Store when Jitsi is not installed.
 - Reply to the web layer with success/fallback so the WebView can close only after a real native handoff.
 - Keep the existing WebView guard that blocks unsolicited Jitsi native URLs from embedded content.
