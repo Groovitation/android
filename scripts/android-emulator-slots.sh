@@ -115,6 +115,22 @@ lock_status_summary() {
     echo "${joined%,}"
 }
 
+evict_orphaned_emulator_for_slot() {
+    local slot="$1"
+    local lock_file="${LOCK_DIR}/slot-${slot}.lock"
+
+    if [ -f "$lock_file" ]; then
+        return 1
+    fi
+
+    echo "  Evicting orphaned emulator process for free slot $slot" >&2
+    pkill -f "emulator.*-port ${slot}" 2>/dev/null || true
+    sleep 1
+    pkill -9 -f "emulator.*-port ${slot}" 2>/dev/null || true
+    fuser -k "${slot}/tcp" 2>/dev/null || true
+    fuser -k "$((slot + 1))/tcp" 2>/dev/null || true
+}
+
 try_lock_slot() {
     local slot="$1"
     local holder="$2"
@@ -123,6 +139,11 @@ try_lock_slot() {
     local legacy_lock_fd=""
 
     exec {legacy_lock_fd}> "$legacy_lock_file"
+    if ! flock -n "$legacy_lock_fd" 2>/dev/null; then
+        exec {legacy_lock_fd}>&-
+        evict_orphaned_emulator_for_slot "$slot" || true
+        exec {legacy_lock_fd}> "$legacy_lock_file"
+    fi
     if ! flock -n "$legacy_lock_fd" 2>/dev/null; then
         exec {legacy_lock_fd}>&-
         return 1

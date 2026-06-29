@@ -202,6 +202,8 @@ emulator-smoke-test:
           adb -s "emulator-${EMU_PORT}" emu kill 2>/dev/null || true
           [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill -9 "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
           pkill -9 -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+          fuser -k "${EMU_PORT}/tcp" 2>/dev/null || true
+          fuser -k "$((EMU_PORT + 1))/tcp" 2>/dev/null || true
         fi
         exit 1
       }
@@ -239,17 +241,86 @@ emulator-smoke-test:
       echo "$EMU_PORT" > /tmp/emu-port-${CI_JOB_ID}
       echo "$EMU_PORT" > /tmp/android-emulator-slot-${CI_JOB_ID}
       echo "Using reserved emulator slot: port=${EMU_PORT} serial=${ANDROID_SERIAL}"
+    # Prepare a runner-owned AVD clone for this slot. Booting the shared
+    # ben-owned ci-api35 AVD directly can fail when the emulator rewrites initrd.
+    - |
+      BASE_AVD_HOME="${ANDROID_AVD_HOME}"
+      BASE_AVD_NAME="ci-api35"
+      BASE_AVD_DIR="${BASE_AVD_HOME}/${BASE_AVD_NAME}.avd"
+      export EMU_AVD="ci-api35-${EMU_PORT}"
+      export ANDROID_AVD_HOME="/tmp/android-emulator-avds/slot-${EMU_PORT}/avd-home"
+      SLOT_AVD_DIR="${ANDROID_AVD_HOME}/${EMU_AVD}.avd"
+      SLOT_AVD_INI="${ANDROID_AVD_HOME}/${EMU_AVD}.ini"
+      if [ ! -d "$BASE_AVD_DIR" ]; then
+        echo "ERROR: Base Android AVD not found at ${BASE_AVD_DIR}"
+        exit 1
+      fi
+      mkdir -p "$ANDROID_AVD_HOME" "$SLOT_AVD_DIR"
+      rsync -a --delete \
+        --exclude='*.lock' \
+        --exclude='*.lock.lock' \
+        --exclude='*.qcow2' \
+        --exclude='bootcompleted.ini' \
+        --exclude='data/' \
+        --exclude='quickbootChoice.ini' \
+        --exclude='read-snapshot.txt' \
+        --exclude='snapshots/' \
+        --exclude='tmpAdbCmds/' \
+        "${BASE_AVD_DIR}/" "${SLOT_AVD_DIR}/"
+      python3 - "$SLOT_AVD_DIR/config.ini" "$EMU_AVD" <<'PY'
+      import pathlib
+      import sys
+
+      config_path = pathlib.Path(sys.argv[1])
+      slot_name = sys.argv[2]
+      lines = config_path.read_text(encoding="utf-8").splitlines()
+      updates = {
+          "avd.id": slot_name,
+          "avd.name": slot_name,
+      }
+      seen = set()
+      out = []
+      for line in lines:
+          if "=" in line:
+              key, _ = line.split("=", 1)
+              if key in updates:
+                  out.append(f"{key}={updates[key]}")
+                  seen.add(key)
+                  continue
+          out.append(line)
+      for key, value in updates.items():
+          if key not in seen:
+              out.append(f"{key}={value}")
+      config_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+      PY
+      cat > "$SLOT_AVD_INI" <<EOF
+      avd.ini.encoding=UTF-8
+      path=${SLOT_AVD_DIR}
+      path.rel=avd/${EMU_AVD}.avd
+      target=android-35
+      EOF
+      rm -f "${SLOT_AVD_DIR}/multiinstance.lock" "${SLOT_AVD_DIR}/hardware-qemu.ini.lock" 2>/dev/null || true
+      rm -f "${SLOT_AVD_DIR}/"*.qcow2 2>/dev/null || true
+      rm -f "${SLOT_AVD_DIR}/quickbootChoice.ini" "${SLOT_AVD_DIR}/emulator-user.ini" "${SLOT_AVD_DIR}/read-snapshot.txt" 2>/dev/null || true
+      rm -rf "${SLOT_AVD_DIR}/snapshots" "${SLOT_AVD_DIR}/tmpAdbCmds" 2>/dev/null || true
+      mkdir -p "${SLOT_AVD_DIR}/snapshots"
+      echo "Prepared runner-owned AVD ${EMU_AVD} at ${SLOT_AVD_DIR}"
     # Kill stale emulator on our port only (don't touch other slots)
     - |
       adb -s "${ANDROID_SERIAL}" emu kill 2>/dev/null || true
       pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+      sleep 1
+      pkill -9 -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+      if [ -f "/tmp/emulator-${EMU_PORT}.pid" ]; then
+        kill -9 "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
+      fi
       # Force-kill anything holding our emulator ports (console + adb)
       fuser -k "${EMU_PORT}/tcp" 2>/dev/null || true
       fuser -k "$((EMU_PORT + 1))/tcp" 2>/dev/null || true
       sleep 2
     # Clean stale overlay/lock files from the shared AVD
     - |
-      AVD_DIR="${ANDROID_AVD_HOME}/ci-api35.avd"
+      AVD_DIR="${ANDROID_AVD_HOME}/${EMU_AVD}.avd"
       rm -f "${AVD_DIR}/multiinstance.lock" "${AVD_DIR}/hardware-qemu.ini.lock" 2>/dev/null || true
       rm -f "${AVD_DIR}/"*.qcow2 2>/dev/null || true
       rm -f "${AVD_DIR}/quickbootChoice.ini" "${AVD_DIR}/emulator-user.ini" "${AVD_DIR}/read-snapshot.txt" 2>/dev/null || true
@@ -258,7 +329,7 @@ emulator-smoke-test:
     # root/groovitation's 5554 lane on the same shared ci-api35 AVD.
     - |
       echo "Booting emulator (cold boot) on port ${EMU_PORT}..."
-      emulator @ci-api35 -port "${EMU_PORT}" \
+      emulator "@${EMU_AVD}" -port "${EMU_PORT}" \
         -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
         -no-snapshot-load -no-snapshot-save -read-only > /tmp/emulator-${EMU_PORT}.log 2>&1 &
       EMULATOR_PID=$!
@@ -336,13 +407,22 @@ emulator-smoke-test:
       EMU_PORT=$(cat /tmp/emu-port-${CI_JOB_ID} 2>/dev/null || echo "")
       if [ -n "$EMU_PORT" ]; then
         adb -s "emulator-${EMU_PORT}" emu kill 2>/dev/null || true
-        pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
         [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
+        pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+        sleep 1
+        [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill -9 "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
+        pkill -9 -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+        fuser -k "${EMU_PORT}/tcp" 2>/dev/null || true
+        fuser -k "$((EMU_PORT + 1))/tcp" 2>/dev/null || true
       else
         # Port file missing — clean up both slots
         for p in 5556 5558; do
           adb -s "emulator-${p}" emu kill 2>/dev/null || true
           pkill -f "emulator.*-port ${p}" 2>/dev/null || true
+          sleep 1
+          pkill -9 -f "emulator.*-port ${p}" 2>/dev/null || true
+          fuser -k "${p}/tcp" 2>/dev/null || true
+          fuser -k "$((p + 1))/tcp" 2>/dev/null || true
         done
       fi
       if [ -f "/tmp/android-emulator-slot-${CI_JOB_ID}" ]; then
