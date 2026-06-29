@@ -202,6 +202,8 @@ emulator-smoke-test:
           adb -s "emulator-${EMU_PORT}" emu kill 2>/dev/null || true
           [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill -9 "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
           pkill -9 -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+          fuser -k "${EMU_PORT}/tcp" 2>/dev/null || true
+          fuser -k "$((EMU_PORT + 1))/tcp" 2>/dev/null || true
         fi
         exit 1
       }
@@ -243,6 +245,11 @@ emulator-smoke-test:
     - |
       adb -s "${ANDROID_SERIAL}" emu kill 2>/dev/null || true
       pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+      sleep 1
+      pkill -9 -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+      if [ -f "/tmp/emulator-${EMU_PORT}.pid" ]; then
+        kill -9 "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
+      fi
       # Force-kill anything holding our emulator ports (console + adb)
       fuser -k "${EMU_PORT}/tcp" 2>/dev/null || true
       fuser -k "$((EMU_PORT + 1))/tcp" 2>/dev/null || true
@@ -336,13 +343,22 @@ emulator-smoke-test:
       EMU_PORT=$(cat /tmp/emu-port-${CI_JOB_ID} 2>/dev/null || echo "")
       if [ -n "$EMU_PORT" ]; then
         adb -s "emulator-${EMU_PORT}" emu kill 2>/dev/null || true
-        pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
         [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
+        pkill -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+        sleep 1
+        [ -f "/tmp/emulator-${EMU_PORT}.pid" ] && kill -9 "$(cat "/tmp/emulator-${EMU_PORT}.pid")" 2>/dev/null || true
+        pkill -9 -f "emulator.*-port ${EMU_PORT}" 2>/dev/null || true
+        fuser -k "${EMU_PORT}/tcp" 2>/dev/null || true
+        fuser -k "$((EMU_PORT + 1))/tcp" 2>/dev/null || true
       else
         # Port file missing — clean up both slots
         for p in 5556 5558; do
           adb -s "emulator-${p}" emu kill 2>/dev/null || true
           pkill -f "emulator.*-port ${p}" 2>/dev/null || true
+          sleep 1
+          pkill -9 -f "emulator.*-port ${p}" 2>/dev/null || true
+          fuser -k "${p}/tcp" 2>/dev/null || true
+          fuser -k "$((p + 1))/tcp" 2>/dev/null || true
         done
       fi
       if [ -f "/tmp/android-emulator-slot-${CI_JOB_ID}" ]; then
